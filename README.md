@@ -19,7 +19,7 @@ and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** a
 
 ---
 
-## The 10-year-old explanation
+## Non-techinical explanation
 
 Imagine your school has hundreds of lockers, and every locker has a key. Some keys are in the
 office safe, some are with teachers, some are taped under desks. Some locks are the good new kind,
