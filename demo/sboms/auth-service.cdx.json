@@ -1,0 +1,52 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:b2cf7ba7-fc8f-51db-b4ee-2603c6dee1f3",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-01T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "cdxgen",
+          "version": "11.2.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:github/acme/auth-service@2.0.1",
+      "name": "auth-service",
+      "version": "2.0.1",
+      "purl": "pkg:github/acme/auth-service@2.0.1",
+      "description": "Issues and verifies JWTs for the API gateway",
+      "supplier": {
+        "name": "platform-team"
+      }
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyjwt@2.8.0",
+      "name": "pyjwt",
+      "version": "2.8.0",
+      "purl": "pkg:pypi/pyjwt@2.8.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/cryptography@42.0.5",
+      "name": "cryptography",
+      "version": "42.0.5",
+      "purl": "pkg:pypi/cryptography@42.0.5"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/hvac@2.1.0",
+      "name": "hvac",
+      "version": "2.1.0",
+      "purl": "pkg:pypi/hvac@2.1.0"
+    }
+  ]
+}

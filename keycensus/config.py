@@ -12,6 +12,9 @@
         url: https://vault.example.com:8200
         token_env: VAULT_TOKEN
 
+Optionally, `applications:` declares which application uses which key (see
+keycensus.linking) and `linking: {auto_match: true}` tunes the automatic matching.
+
 Secrets are referenced by environment variable (`*_env`) or file (`*_file`),
 never written into the YAML.
 """
@@ -59,6 +62,9 @@ class Config:
     sources: list[SourceConfig]
     policy: str = "default"
     serve: dict[str, Any] = field(default_factory=dict)
+    applications: list[dict[str, Any]] = field(default_factory=list)  # see keycensus.linking
+    auto_match: bool = True
+    base_dir: str | None = None  # directory of the config file; relative SBOM paths resolve against it
 
 
 def load(path: str | Path) -> Config:
@@ -77,4 +83,15 @@ def load(path: str | Path) -> Config:
         seen.add(entry["name"])
         opts = {k: v for k, v in entry.items() if k not in ("name", "type")}
         sources.append(SourceConfig(name=str(entry["name"]), type=str(entry["type"]), options=opts))
-    return Config(sources=sources, policy=str(raw.get("policy", "default")), serve=raw.get("serve") or {})
+    apps = raw.get("applications") or []
+    if not isinstance(apps, list):
+        raise ConfigError(f"{path}: 'applications' must be a list")
+    linking = raw.get("linking") or {}
+    return Config(
+        sources=sources,
+        policy=str(raw.get("policy", "default")),
+        serve=raw.get("serve") or {},
+        applications=apps,
+        auto_match=bool(linking.get("auto_match", True)),
+        base_dir=str(Path(path).resolve().parent),
+    )

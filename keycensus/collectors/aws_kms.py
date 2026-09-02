@@ -7,13 +7,16 @@
       endpoint_url: http://moto:5000   # demo / LocalStack only
       include_aws_managed: false       # aws/* keys are AWS's problem, not yours
       include_pending_deletion: true
+      include_consumers: true          # who uses the key: grants + key policy principals -> used_by
 
-Needs `kms:ListKeys`, `kms:DescribeKey`, `kms:GetKeyRotationStatus`,
-`kms:ListAliases`, `kms:ListResourceTags`. Requires `pip install 'keycensus[aws]'`.
+Needs `kms:ListKeys`, `kms:DescribeKey`, `kms:GetKeyRotationStatus`, `kms:ListAliases`,
+`kms:ListResourceTags`, and for `include_consumers` also `kms:ListGrants` and `kms:GetKeyPolicy`
+(both tolerated when denied). Requires `pip install 'keycensus[aws]'`.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC
 
@@ -98,6 +101,7 @@ class AwsKmsCollector(Collector):
 
         include_aws = bool(self.opt.get("include_aws_managed", False))
         include_pending = bool(self.opt.get("include_pending_deletion", True))
+        self.include_consumers = bool(self.opt.get("include_consumers", True))
         assets: list[CryptoAsset] = []
         for page in kms.get_paginator("list_keys").paginate():
             for entry in page.get("Keys", []):
@@ -108,6 +112,39 @@ class AwsKmsCollector(Collector):
                     continue
                 assets.append(self._asset(kms, md, aliases.get(md["KeyId"], [])))
         return assets
+
+    def _consumers(self, kms, key_id: str) -> list[dict]:
+        """Grants (the mechanism AWS services and apps use) plus non-root principals in the key policy."""
+        out: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+
+        def add(kind: str, ident: str, via: str):
+            if ident and (kind, ident) not in seen:
+                seen.add((kind, ident))
+                out.append({"type": kind, "id": ident, "via": via})
+
+        try:
+            for page in kms.get_paginator("list_grants").paginate(KeyId=key_id):
+                for g in page.get("Grants", []):
+                    add("principal", g.get("GranteePrincipal", ""), "grant:" + (g.get("Name") or "unnamed"))
+        except Exception as exc:  # noqa: BLE001 - kms:ListGrants denied
+            log.debug("[%s] list_grants %s: %s", self.name, key_id, exc)
+        try:
+            policy = json.loads(kms.get_key_policy(KeyId=key_id, PolicyName="default").get("Policy") or "{}")
+            for st in policy.get("Statement") or []:
+                if st.get("Effect") != "Allow":
+                    continue
+                principal = st.get("Principal") or {}
+                arns = principal.get("AWS") if isinstance(principal, dict) else principal
+                for arn in [arns] if isinstance(arns, str) else (arns or []):
+                    if isinstance(arn, str) and not arn.endswith(":root") and arn != "*":
+                        add("principal", arn, "key-policy:" + str(st.get("Sid") or "unnamed"))
+                services = principal.get("Service") if isinstance(principal, dict) else None
+                for svc in [services] if isinstance(services, str) else (services or []):
+                    add("service", svc, "key-policy:" + str(st.get("Sid") or "unnamed"))
+        except Exception as exc:  # noqa: BLE001 - kms:GetKeyPolicy denied
+            log.debug("[%s] get_key_policy %s: %s", self.name, key_id, exc)
+        return out
 
     def _asset(self, kms, md: dict, names: list[str]) -> CryptoAsset:
         spec = md.get("KeySpec") or md.get("CustomerMasterKeySpec") or "SYMMETRIC_DEFAULT"
@@ -145,7 +182,9 @@ class AwsKmsCollector(Collector):
             expires = expires.replace(tzinfo=UTC)
 
         name = names[0].removeprefix("alias/") if names else md["KeyId"]
+        used_by = self._consumers(kms, md["KeyId"]) if self.include_consumers else []
         return self.asset(
+            used_by=used_by,
             kind=KIND_KEY,
             name=name,
             native_id=md["Arn"],

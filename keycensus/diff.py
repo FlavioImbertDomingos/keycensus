@@ -41,6 +41,8 @@ WATCHED = (
     "fingerprint_sha256",
     "location",
     "name",
+    "applications",
+    "used_by",
 )
 
 
@@ -161,7 +163,8 @@ def diff_dicts(before: dict, after: dict) -> Diff:
         for f in WATCHED:
             ov, nv = old.get(f), new.get(f)
             if isinstance(ov, list) and isinstance(nv, list):
-                ov, nv = sorted(map(str, ov)), sorted(map(str, nv))
+                norm = lambda x: x.get("id", str(x)) if isinstance(x, dict) else str(x)  # noqa: E731
+                ov, nv = sorted(map(norm, ov)), sorted(map(norm, nv))
             if ov != nv:
                 changes[f] = {"before": old.get(f), "after": new.get(f)}
         if changes:

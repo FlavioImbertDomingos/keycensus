@@ -1,0 +1,19 @@
+# What bootstrap-azure.sh / bootstrap-gcp.sh create, and what the live tests assert.
+# Names are prefixed "kcit-" so teardown can find them and nothing else is touched.
+azure:
+  keys:
+    kcit-rsa-rotating:  {algorithm: RSA, key_size: 2048, rotation_enabled: true, hardware_backed: false}
+    kcit-ec-p384:       {algorithm: EC, curve: P-384, key_size: 384, rotation_enabled: false}
+    kcit-rsa-disabled:  {algorithm: RSA, key_size: 3072, state: deactivated}
+    kcit-rsa-hsm:       {algorithm: RSA, key_size: 2048, hardware_backed: true, optional: true}   # premium tier only
+  certificates:
+    kcit-selfsigned:    {algorithm: RSA, key_size: 2048, self_signed: true}
+gcp:
+  location: us-east1
+  key_ring: kcit-ring
+  keys:
+    kcit-sym-rotating:  {algorithm: AES, key_size: 256, rotation_enabled: true, hardware_backed: false, purposes: [encrypt, decrypt]}
+    kcit-ec-sign:       {algorithm: EC, curve: P-256, key_size: 256, rotation_enabled: null, purposes: [sign, verify]}
+    kcit-hmac:          {algorithm: HMAC, key_size: 256, purposes: [mac]}
+    kcit-hsm-sym:       {algorithm: AES, key_size: 256, hardware_backed: true, fips_validated: true}
+    kcit-disabled:      {algorithm: AES, key_size: 256, state: deactivated}

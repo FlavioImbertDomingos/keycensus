@@ -29,4 +29,18 @@ vault write -f pki/root/generate/internal common_name="Demo Bank Vault Root CA" 
 vault write pki/roles/internal allowed_domains=demo.bank allow_subdomains=true max_ttl=720h >/dev/null
 vault write pki/issue/internal common_name=vault-app.demo.bank ttl=240h >/dev/null
 vault write pki/issue/internal common_name=vault-batch.demo.bank ttl=24h >/dev/null
-echo "seeded vault: 7 transit keys, 1 root CA, 2 leaf certs"
+# who uses which key: ACL policies (keycensus reads sys/policies/acl and maps transit paths to keys)
+vault policy write payments-api - <<'POL' >/dev/null
+path "transit/encrypt/payments-dek" { capabilities = ["update"] }
+path "transit/decrypt/payments-dek" { capabilities = ["update"] }
+path "transit/encrypt/session-*"    { capabilities = ["update"] }
+POL
+vault policy write auth-service - <<'POL' >/dev/null
+path "transit/sign/jwt-ecdsa"   { capabilities = ["update"] }
+path "transit/verify/jwt-ecdsa" { capabilities = ["update"] }
+POL
+vault policy write batch-reporting - <<'POL' >/dev/null
+path "transit/decrypt/payments-dek" { capabilities = ["update"] }
+path "transit/keys/legacy-rsa"      { capabilities = ["read"] }
+POL
+echo "seeded vault: 7 transit keys, 1 root CA, 2 leaf certs, 3 policies"

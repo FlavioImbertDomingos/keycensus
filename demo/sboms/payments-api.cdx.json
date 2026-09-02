@@ -1,0 +1,59 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:719f31d9-a91f-5b89-be75-d998c2559ba7",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-01T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "cdxgen",
+          "version": "11.2.0"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:github/acme/payments-api@1.4.2",
+      "name": "payments-api",
+      "version": "1.4.2",
+      "purl": "pkg:github/acme/payments-api@1.4.2",
+      "description": "Card tokenization and payment authorization service",
+      "supplier": {
+        "name": "payments-team"
+      }
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/boto3@1.34.90",
+      "name": "boto3",
+      "version": "1.34.90",
+      "purl": "pkg:pypi/boto3@1.34.90"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/cryptography@42.0.5",
+      "name": "cryptography",
+      "version": "42.0.5",
+      "purl": "pkg:pypi/cryptography@42.0.5"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/hvac@2.1.0",
+      "name": "hvac",
+      "version": "2.1.0",
+      "purl": "pkg:pypi/hvac@2.1.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/fastapi@0.110.0",
+      "name": "fastapi",
+      "version": "0.110.0",
+      "purl": "pkg:pypi/fastapi@0.110.0"
+    }
+  ]
+}

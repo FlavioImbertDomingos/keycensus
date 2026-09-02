@@ -33,4 +33,8 @@ def scan(config: Config, policy: Policy | None = None, max_workers: int = 8) -> 
 
     inv = Inventory(generated_at=utcnow(), sources=results, policy_name=policy.name)
     inv.findings = evaluate(inv.assets, policy)
+    if config.applications:
+        from .linking import apply as link_apply
+
+        link_apply(inv, config.applications, policy, base_dir=config.base_dir, auto_match=config.auto_match)
     return inv
