@@ -123,6 +123,110 @@ in `extra.fpe_mode`). States `active|enabled|current` → active; `retired|disab
 
 The demo's `mock-voltage/` serves this shape over HTTP and CSV.
 
+## `azure-keyvault` — Azure Key Vault and Managed HSM
+
+```yaml
+- name: kv-payments
+  type: azure-keyvault
+  vault_url: https://payments-kv.vault.azure.net        # or https://<name>.managedhsm.azure.net
+  auth: default                                         # DefaultAzureCredential: managed/workload identity, az login, SP env vars
+  # auth: token + token_env: AZURE_TOKEN                # a raw bearer token (CI: az account get-access-token --resource https://vault.azure.net)
+  include_certificates: true
+  include_disabled: true
+```
+
+**Permissions:** `keys/list`, `keys/get`, `keys/getrotationpolicy`, `certificates/list`,
+`certificates/get` (Key Vault "Reader"-style access policy or the *Key Vault Crypto User* + *Key Vault
+Certificate User* RBAC roles); on Managed HSM the *Managed HSM Crypto Auditor* role. Requires
+`pip install "keycensus[azure]"` for `auth: default`; `auth: token` needs nothing extra.
+
+**What maps:** `kty` (`RSA`, `RSA-HSM`, `EC`, `EC-HSM`, `oct`, `oct-HSM`) → algorithm and `hardware_backed`
+(everything on a Managed HSM is hardware-backed and FIPS 140-3 L3); `crv` → curve; the RSA modulus length →
+`key_size`; `key_ops` → purposes; `attributes.exp/nbf/enabled/created/exportable/recoveryLevel`; the rotation
+policy (`lifetimeActions` with a `Rotate` action) → `rotation_enabled`. Certificates are parsed from `cer`
+(the public part) and carry the issuer provider and the backing key's `kty`. Asset ids are version-less, so a
+rotation shows up as `last_rotated` changing in diff mode rather than as a new asset.
+
+## `gcp-kms` — Google Cloud KMS
+
+```yaml
+- name: gcp-payments
+  type: gcp-kms
+  project: acme-payments-prod
+  locations: [global, us-east1]        # default: every location in the project
+  auth: default                        # Application Default Credentials (workload identity, SA JSON, gcloud)
+  # auth: token + token_env: GCP_TOKEN # gcloud auth print-access-token
+  include_destroyed: false
+```
+
+**Permissions:** `roles/cloudkms.viewer` on the project. Requires `pip install "keycensus[gcp]"` for
+`auth: default`.
+
+**What maps:** one asset per **CryptoKey**, described by its primary version: `algorithm`
+(`GOOGLE_SYMMETRIC_ENCRYPTION`, `RSA_SIGN_PSS_3072_SHA256`, `EC_SIGN_P256_SHA256`, `HMAC_SHA256`,
+`PQ_SIGN_ML_DSA_65` …) → algorithm/size/curve/hash; `protectionLevel` `HSM` → `hardware_backed` +
+`fips_validated`, `EXTERNAL*` → `exportable` (the material lives outside Google); `rotationPeriod` →
+`rotation_enabled` (symmetric keys only — GCP has no auto-rotation for asymmetric keys, so those are `null`);
+`primary.createTime` → `last_rotated`; version counts and states, `nextRotationTime`, import jobs and the
+external key URI go to `extra`. Keys whose versions are all destroyed are skipped unless `include_destroyed`.
+
+## `ciphertrust` — Thales CipherTrust Manager
+
+Beyond PKCS#11: the CM key vault as CM itself sees it — every key, its state, usage mask and lifecycle
+dates — over the REST API, without a KMIP/PKCS#11 client.
+
+```yaml
+- name: ctm-prod
+  type: ciphertrust
+  url: https://ctm.corp
+  username: keycensus
+  password_env: CTM_PASSWORD
+  domain: payments                     # optional CM domain
+  # jwt_env: CTM_JWT                   # or a pre-issued JWT / API token
+  verify_tls: /etc/ssl/certs/corp-ca.pem
+  hardware_backed: true                # the domain is HSM-anchored (Luna / nShield root of trust)
+  include_public_keys: false
+  include_destroyed: false
+```
+
+**Permissions:** a user in a group with read access to keys (the built-in *Key Users* / *Key Admins* or a
+custom group with `ReadKey`). Only `GET /api/v1/vault/keys2` metadata is read; nothing is exported.
+
+**What maps:** `algorithm` + `size` + `curveid` → algorithm/size/curve (AES, TDES → 3DES, RSA, EC with
+prime256v1 / secp384r1 / brainpool / ed25519, HMAC-SHA*, ML-DSA/ML-KEM); `usageMask` bits → purposes;
+`state` → `Pre-Active` / `Active` / `Deactivated` / `Compromised` / `Destroyed`; `createdAt`,
+`deactivationDate` → created / expires; `unexportable` → `exportable`; `objectType` → key vs certificate;
+`labels` → tags; `meta` → extra (a `rotation*` key there sets `rotation_enabled`).
+
+## `keysafe5` — Entrust KeySafe 5 (nShield)
+
+Beyond PKCS#11: the whole nShield estate from KeySafe 5's management API — every application key in the
+Security World, how it is protected (module / softcard / OCS card set), and which HSMs (ESNs) hold it.
+
+```yaml
+- name: nshield-estate
+  type: keysafe5
+  url: https://keysafe5.corp
+  auth: bearer                         # OIDC / API token
+  token_env: KS5_TOKEN
+  # auth: basic + username + password_env
+  verify_tls: /etc/ssl/certs/corp-ca.pem
+  keys_path: /km/v1/keys               # default; /mgmt/v1/keys is tried on 404
+  hsms_path: /mgmt/v1/hsms             # optional HSM inventory (model, firmware) merged into extra
+  field_map: {}                        # rename fields if your KeySafe 5 version differs
+```
+
+**What maps:** nShield key types (`RSAPrivate`, `ECDSAPrivate`, `ECDHPublic`, `Rijndael` = AES, `DES3`,
+`HMACSHA256`, `Ed25519`, `MLDSA65`, `Wrapped` …) → algorithm/size/curve/key type; `protection` and the
+cardset / softcard name → `extra.protection` / `extra.protector`; `hsmESNs` → `extra.hsm_esns` (+ model and
+firmware when `hsms_path` answers). Every Security World key is `hardware_backed` and `fips_validated`
+by default (nShield modules are FIPS 140-3 validated) — set the options to false for softcard keys if your
+auditor disagrees.
+
+**Honesty:** the collector was written from the KeySafe 5 REST API reference and tested against a mock. Field
+names are matched tolerantly (see the module docstring for the accepted names) and `field_map` covers the
+rest; a redacted real `GET keys` response in an issue is the fastest way to make the defaults right.
+
 ## `pem` — files on disk
 
 ```yaml

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.0] - 2026-09-02
+
+### Added
+- Collectors: `azure-keyvault` (Azure Key Vault + Managed HSM, keys and certificates, rotation policy),
+  `gcp-kms` (Google Cloud KMS, all locations, protection levels, version states), `ciphertrust` (Thales
+  CipherTrust Manager REST: JWT login, `vault/keys2`, usage mask, lifecycle states) and `keysafe5` (Entrust
+  KeySafe 5 REST: Security World keys, protection method, HSM ESNs, tolerant field mapping).
+  Optional extras `keycensus[azure]` (azure-identity) and `keycensus[gcp]` (google-auth); token auth works without them.
+- Diff mode: `keycensus diff BEFORE AFTER` (text / markdown / json, `--fail-on-new`, `--fail-on-change`) and
+  `keycensus scan --baseline previous/inventory.json` writing `diff.json` + `diff.md` (exit 3 with `--fail-on-new`).
+- `keycensus upload dtrack`: push the CBOM to OWASP Dependency-Track (`PUT /api/v1/bom`, auto-create, parent
+  project, wait for processing, prints the project URL).
+- Helm chart `helm/keycensus`: serve Deployment (Service, optional ServiceMonitor / Ingress) and/or scan CronJob
+  with a persistent baseline, diff, fail gates and Dependency-Track upload; secrets via `existingSecret`.
+
+### Changed
+- `keycensus scan` exit codes: 1 findings at/above `--fail-on`, 2 a source failed, 3 new findings at/above
+  `--fail-on-new` (with `--baseline`). Lower codes win when several apply.
+
 ## [0.1.0] - 2026-09-02
 
 ### Added

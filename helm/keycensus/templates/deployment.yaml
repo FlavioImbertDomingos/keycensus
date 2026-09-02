@@ -1,0 +1,91 @@
+{{- if .Values.mode.serve.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keycensus.fullname" . }}
+  labels:
+    {{- include "keycensus.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mode.serve.replicas }}
+  selector:
+    matchLabels:
+      {{- include "keycensus.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "keycensus.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "keycensus.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: keycensus
+          image: {{ include "keycensus.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            {{- if not .Values.mode.serve.perAssetMetrics }}
+            - --no-per-asset-metrics
+            {{- end }}
+          env:
+            {{- include "keycensus.env" . | nindent 12 }}
+            - name: KEYCENSUS_INTERVAL
+              value: {{ .Values.mode.serve.interval | quote }}
+            - name: KEYCENSUS_PORT
+              value: {{ .Values.service.port | quote }}
+          {{- $envFrom := include "keycensus.envFrom" . }}
+          {{- if $envFrom }}
+          envFrom:
+            {{- $envFrom | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          startupProbe:                     # the first scan can take a while on large estates
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 60
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "keycensus.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "keycensus.volumes" . | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

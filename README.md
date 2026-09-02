@@ -2,7 +2,8 @@
 
 **A census of every cryptographic key, certificate and TLS endpoint you own — and what's wrong with them.**
 
-One command scans your HSMs, Vault, AWS KMS, Voltage, certificate folders and TLS ports; produces a
+One command scans your HSMs (PKCS#11, CipherTrust Manager, KeySafe 5), Vault, AWS KMS, Azure Key Vault /
+Managed HSM, Google Cloud KMS, Voltage, certificate folders and TLS ports; produces a
 standards-based **CBOM** (CycloneDX 1.6), an HTML report a human can read, and Prometheus metrics;
 and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the
 **NIST IR 8547 post-quantum timeline**.
@@ -141,6 +142,17 @@ sources:
   - name: aws-prod
     type: aws-kms
     region: us-east-1
+  - name: kv-payments
+    type: azure-keyvault
+    vault_url: https://payments-kv.vault.azure.net
+  - name: gcp-payments
+    type: gcp-kms
+    project: acme-payments-prod
+  - name: ctm-prod
+    type: ciphertrust
+    url: https://ctm.example.com
+    username: keycensus
+    password_env: CTM_PASSWORD
   - name: voltage
     type: voltage
     file: /exports/voltage-keys.csv
@@ -192,6 +204,14 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | `inventory.json` | Scripts | Everything, including raw source fields |
 | `inventory.csv` | Spreadsheets, GRC uploads | One row per asset with findings column |
 | `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class |
+| `diff.json` / `diff.md` | Change review, CI gates | With `--baseline previous/inventory.json`: assets added / removed / changed, findings new / resolved, sources broken |
+
+```bash
+keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-new high   # exit 3 on new high+ findings
+keycensus diff last/inventory.json out/inventory.json -f markdown                           # or text / json
+keycensus upload dtrack --url https://dtrack.corp --project hsm-estate --version 2026-09-02 --cbom out/cbom.json
+helm install keycensus ./helm/keycensus -f my-values.yaml                                    # Deployment and/or CronJob
+```
 
 ---
 
@@ -215,6 +235,9 @@ has the walkthrough.
 ## Documentation
 
 - [docs/COLLECTORS.md](docs/COLLECTORS.md) — every source type, its options, and the permissions it needs
+- [docs/DIFF.md](docs/DIFF.md) — diff mode: what changed since the last scan, and how to gate CI on it
+- [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
+- [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
 - [docs/POLICY.md](docs/POLICY.md) — every rule, how it decides, how to tune it
 - [docs/CBOM.md](docs/CBOM.md) — how assets map to CycloneDX, and how to load the CBOM elsewhere
 - [docs/COMPLIANCE.md](docs/COMPLIANCE.md) — the PCI DSS / NIST controls and what evidence keycensus gives you
@@ -226,6 +249,11 @@ has the walkthrough.
 
 - The PKCS#11, Vault, AWS KMS, PEM and TLS collectors run **real code paths** in the demo and tests
   (SoftHSM, a real Vault, moto's AWS API, generated certs, a live TLS handshake).
+- The Azure Key Vault / Managed HSM and Google Cloud KMS collectors speak the documented REST APIs and are
+  tested against recorded responses; they have not yet run against a live subscription/project in CI.
+- The CipherTrust Manager and KeySafe 5 collectors were written from the vendors' REST API references and
+  tested against mocks. Field names are matched tolerantly and can be remapped; a redacted real response is
+  the most useful issue you can open.
 - **Voltage SecureData has no public inventory API.** The `voltage` collector consumes an export
   (JSON or CSV, from the Management Console or an internal adapter) with a configurable field map.
   If you run Voltage and can share a redacted export, that is the most useful issue you can open.
@@ -234,11 +262,14 @@ has the walkthrough.
 
 ## Roadmap
 
-- [ ] Azure Key Vault / Managed HSM and Google Cloud KMS collectors
-- [ ] Entrust KeySafe 5 and Thales CipherTrust Manager REST collectors (beyond PKCS#11)
-- [ ] Diff mode: what changed since the last scan
-- [ ] Dependency-Track upload helper
-- [ ] Helm chart
+- [x] Azure Key Vault / Managed HSM and Google Cloud KMS collectors *(0.2.0)*
+- [x] Entrust KeySafe 5 and Thales CipherTrust Manager REST collectors (beyond PKCS#11) *(0.2.0, mock-verified)*
+- [x] Diff mode: what changed since the last scan *(0.2.0)*
+- [x] Dependency-Track upload helper *(0.2.0)*
+- [x] Helm chart *(0.2.0)*
+- [ ] Integration tests against real Azure / GCP accounts (needs credentials in CI)
+- [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
+- [ ] SBOM ↔ CBOM linking: which application uses which key
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.

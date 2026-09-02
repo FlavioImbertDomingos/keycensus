@@ -24,7 +24,18 @@ from .conftest import make_cert, pem, source
 
 # --------------------------------------------------------------------- registry
 def test_registry_has_all_types():
-    assert set(REGISTRY) == {"pkcs11", "vault", "aws-kms", "voltage", "pem", "tls"}
+    assert set(REGISTRY) == {
+        "pkcs11",
+        "vault",
+        "aws-kms",
+        "voltage",
+        "pem",
+        "tls",
+        "azure-keyvault",
+        "gcp-kms",
+        "ciphertrust",
+        "keysafe5",
+    }
 
 
 def test_unknown_type_is_reported_not_raised():
