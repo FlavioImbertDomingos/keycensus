@@ -1,0 +1,62 @@
+# keycensus configuration -- copy to config/keycensus.yml and edit.
+# Secrets are referenced by env var (`*_env`) or file (`*_file`); never inline.
+
+policy: default                       # or: /config/my-policy.yml
+
+sources:
+  # ---- HSMs over PKCS#11 (run keycensus where the vendor client library is installed)
+  - name: luna-payments
+    type: pkcs11
+    module: /usr/safenet/lunaclient/lib/libCryptoki2_64.so
+    token_label: payments-partition
+    pin_env: LUNA_PIN_PAYMENTS
+    hardware_backed: true
+    fips_validated: true
+    tags: {site: phx-dc1, owner: crypto-team}
+
+  # - name: nshield
+  #   type: pkcs11
+  #   module: /opt/nfast/toolkits/pkcs11/libcknfast.so
+  #   slot: 0
+  #   pin_env: NSHIELD_PIN
+  #   hardware_backed: true
+
+  # ---- HashiCorp Vault
+  - name: vault-prod
+    type: vault
+    url: https://vault.example.com:8200
+    token_env: VAULT_TOKEN
+    # namespace: payments
+    # transit_mounts: [transit]
+    # pki_mounts: [pki_int]
+    verify_tls: /config/corp-ca.pem
+    hardware_backed: false            # true if using Managed Keys / HSM seal for transit
+
+  # ---- AWS KMS
+  - name: aws-prod
+    type: aws-kms
+    region: us-east-1
+    # profile: prod
+    include_aws_managed: false
+
+  # ---- Voltage SecureData (inventory export)
+  - name: voltage
+    type: voltage
+    file: /exports/voltage-keys.csv
+    # url: https://export.internal/voltage/inventory.json
+    # username: monitor
+    # password_env: VOLTAGE_PASSWORD
+    hardware_backed: true
+    # field_map: {name: KeyName, identity: Identity, district: District, algorithm: Algorithm,
+    #             created: CreatedDate, rotated: LastRotation, state: Status}
+
+  # ---- Files on disk
+  - name: app-certs
+    type: pem
+    paths: [/etc/ssl/app, /opt/payments/keys]
+
+  # ---- Live TLS endpoints
+  - name: edges
+    type: tls
+    endpoints: ["api.example.com:443", "hsm-proxy.internal:8443"]
+    probe_legacy: true

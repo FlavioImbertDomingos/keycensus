@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keycensus"
+version = "0.1.0"
+description = "Cryptographic inventory (CBOM) and key-hygiene scanner for HSMs, KMSs, Vault, certificates and TLS endpoints"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [{ name = "Flavio Domingos" }]
+keywords = ["cbom", "cyclonedx", "cryptography", "inventory", "pci-dss", "pqc", "hsm", "kms", "vault"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Security :: Cryptography",
+  "Topic :: System :: Systems Administration",
+]
+dependencies = [
+  "click>=8.1",
+  "PyYAML>=6.0",
+  "cryptography>=42",
+  "jinja2>=3.1",
+  "requests>=2.31",
+  "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+pkcs11 = ["python-pkcs11>=0.7"]
+vault = ["hvac>=2.1"]
+aws = ["boto3>=1.34"]
+all = ["python-pkcs11>=0.7", "hvac>=2.1", "boto3>=1.34"]
+test = ["pytest>=8", "responses>=0.25", "jsonschema>=4.21", "moto[kms]>=5", "hvac>=2.1", "boto3>=1.34", "python-pkcs11>=0.7"]
+
+[project.scripts]
+keycensus = "keycensus.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["keycensus*"]
+
+[tool.setuptools.package-data]
+keycensus = ["templates/*.html", "data/*.yml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]

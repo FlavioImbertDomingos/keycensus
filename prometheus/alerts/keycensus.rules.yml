@@ -1,0 +1,49 @@
+# Alerts on keycensus metrics. The scanner already grades findings; these rules
+# turn "the inventory got worse" into a page.
+
+groups:
+  - name: keycensus
+    rules:
+      - alert: KeycensusScanStale
+        expr: time() - keycensus_last_scan_timestamp_seconds > 2 * 3600
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "keycensus has not completed a scan in over 2 hours"
+          description: "Last successful scan was {{ $value | humanizeDuration }} ago. Check `keycensus serve` logs."
+
+      - alert: KeycensusSourceDown
+        expr: keycensus_source_up == 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Inventory source {{ $labels.source }} ({{ $labels.type }}) is failing"
+          description: "The inventory is incomplete while this source fails -- a PCI DSS 12.3.3 gap."
+
+      - alert: KeycensusCriticalFinding
+        expr: keycensus_findings_by_severity{severity="critical"} > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $value }} critical cryptographic finding(s)"
+          description: "Open http://keycensus:9742/report.html -- typically an expired certificate or a broken algorithm in use."
+
+      - alert: KeycensusHighFindingsIncreased
+        expr: increase(keycensus_findings_by_severity{severity="high"}[1d]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "New high-severity cryptographic findings in the last 24h"
+          description: "Something weak or undersized was added to the estate. Review the report."
+
+      - alert: KeycensusCertificateExpiring
+        expr: (keycensus_certificate_expiry_timestamp_seconds - time()) / 86400 < 14
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.name }} ({{ $labels.source }}) expires in {{ $value | printf \"%.0f\" }} days"
+          description: "Subject {{ $labels.subject }}."
+
+      - alert: KeycensusKeyOverdueRotation
+        expr: keycensus_key_age_days > 730
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $labels.name }} ({{ $labels.source }}) is {{ $value | printf \"%.0f\" }} days old"
+          description: "Older than any sensible cryptoperiod; the report has the exact policy verdict."

@@ -1,0 +1,12 @@
+demo/certs/
+.env
+config/keycensus.yml
+out/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/

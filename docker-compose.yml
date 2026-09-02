@@ -1,0 +1,137 @@
+# ------------------------------------------------------------------
+#  keycensus demo stack
+#
+#      docker compose up -d
+#
+#  then open
+#      Report        http://localhost:9742/report.html
+#      CBOM          http://localhost:9742/cbom.json
+#      Metrics       http://localhost:9742/metrics
+#      Vault UI      http://localhost:8200   (token: root)
+#
+#  Optional monitoring (Prometheus + Grafana):
+#      docker compose --profile monitoring up -d
+#      Grafana       http://localhost:3000   (admin / admin)
+#
+#  Sources in the demo: a real Vault, a SoftHSM token (real PKCS#11),
+#  a faithful AWS KMS mock (moto, real boto3), a mock Voltage export,
+#  a folder of imperfect PEM files, and one TLS endpoint.
+# ------------------------------------------------------------------
+
+services:
+
+  keycensus:
+    build: .
+    image: keycensus/keycensus:latest
+    container_name: keycensus
+    environment:
+      KEYCENSUS_DEMO: "1"                    # seed SoftHSM + KMS + certs on start
+      KEYCENSUS_CONFIG: /config/keycensus.yml
+      KEYCENSUS_INTERVAL: ${KEYCENSUS_INTERVAL:-2m}
+      HSM_PIN: ${HSM_PIN:-1234}
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+      VOLTAGE_PASSWORD: ${VOLTAGE_PASSWORD:-changeme}
+      KMS_ENDPOINT: http://kms:5000
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ./config/keycensus.demo.yml:/config/keycensus.yml:ro
+      - keycensus-out:/out
+    ports:
+      - "9742:9742"
+    depends_on:
+      vault-seed:
+        condition: service_completed_successfully
+      kms:
+        condition: service_started
+      voltage:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # A real Vault, in dev mode (in-memory, unsealed, root token "root").
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: vault
+    cap_add: ["IPC_LOCK"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-root}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Seeds Vault with Transit keys and a PKI mount, then exits.
+  vault-seed:
+    image: hashicorp/vault:1.18
+    container_name: vault-seed
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_TOKEN:-root}
+    volumes:
+      - ./demo/seed_vault.sh:/seed.sh:ro
+    entrypoint: ["/bin/sh", "/seed.sh"]
+    depends_on:
+      vault:
+        condition: service_healthy
+
+  # moto: an AWS API mock good enough that real boto3 code doesn't know the difference.
+  kms:
+    image: motoserver/moto:5.0.28
+    container_name: kms
+    ports:
+      - "5000:5000"
+
+  # Pretend Voltage SecureData export (HTTP :8800) + an HTTPS port to scan (:8443).
+  voltage:
+    build: ./mock-voltage
+    image: keycensus/mock-voltage:latest
+    container_name: voltage
+    environment:
+      MOCK_USERNAME: monitor
+      MOCK_PASSWORD: ${VOLTAGE_PASSWORD:-changeme}
+      MOCK_TLS_CERT_DAYS: "20"
+    ports:
+      - "8800:8800"
+      - "8443:8443"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8800/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # ---------------- optional: --profile monitoring ----------------
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: prometheus
+    profiles: ["monitoring"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+    ports:
+      - "9090:9090"
+    depends_on: [keycensus]
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    container_name: grafana
+    profiles: ["monitoring"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/keycensus.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
+
+volumes:
+  keycensus-out:

@@ -1,0 +1,44 @@
+# Demo configuration used by docker-compose.yml. Every source here is fake or local:
+#   softhsm      a software PKCS#11 token inside the keycensus container (real PKCS#11 code path)
+#   vault        a real HashiCorp Vault dev server (container)
+#   fake-aws     moto, a faithful AWS API mock (real boto3 code path)
+#   voltage      mock export in the canonical Voltage shape
+#   app-certs    a folder of deliberately imperfect PEM files
+#   edges        the mock's HTTPS port, scanned like any TLS endpoint
+policy: default
+
+sources:
+  - name: softhsm
+    type: pkcs11
+    module: /usr/lib/softhsm/libsofthsm2.so
+    token_label: demo
+    pin_env: HSM_PIN
+    hardware_backed: false      # it's software; a real Luna/nShield would be true
+    tags: {env: demo, owner: crypto-team}
+
+  - name: vault
+    type: vault
+    url: http://vault:8200
+    token_env: VAULT_TOKEN
+    hardware_backed: false
+
+  - name: fake-aws
+    type: aws-kms
+    region: us-east-1
+    endpoint_url: http://kms:5000
+    include_aws_managed: false
+
+  - name: voltage
+    type: voltage
+    url: http://voltage:8800/inventory.json
+    username: monitor
+    password_env: VOLTAGE_PASSWORD
+
+  - name: app-certs
+    type: pem
+    paths: [/app/demo/certs]
+
+  - name: edges
+    type: tls
+    endpoints: ["voltage:8443"]
+    probe_legacy: true
