@@ -13,4 +13,4 @@
   Prometheus metrics via `keycensus serve`.
 - Demo stack: real Vault, SoftHSM, moto KMS, mock Voltage, imperfect demo certs; optional
   Prometheus + Grafana profile with alert rules and dashboard.
-- CI: lint, tests on 3.10/3.12 with SoftHSM, promtool, compose smoke test, GHCR publish.
+- CI: lint, tests on 3.11/3.12 with SoftHSM, promtool, compose smoke test, GHCR publish.
