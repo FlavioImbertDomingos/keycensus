@@ -30,6 +30,7 @@
   .sev.low{background:var(--low)} .sev.info{background:var(--info)}
   .pill { display:inline-block; padding:1px 7px; border-radius:6px; background:#eef2f7; font-size:12px; margin-right:4px }
   .pill.vuln{background:#fde8e6;color:#8a1c14} .pill.reduced{background:#fff4d6;color:#6b4d00} .pill.safe{background:#e2f5ea;color:#155c38}
+  .pill.app{background:#e6eefc;color:#1c3f8a}
   .bar { display:flex; height:18px; border-radius:9px; overflow:hidden; border:1px solid var(--line); background:#fff }
   .bar div { height:100%; }
   .legend { display:flex; gap:16px; margin-top:6px; color:var(--muted); font-size:12px; flex-wrap:wrap }
@@ -116,7 +117,7 @@
 <h2>Assets ({{ assets|length }})</h2>
 <input type="search" id="q" placeholder="filter assets… (name, algorithm, source, state)" oninput="filterRows()">
 <table id="assets">
-  <thead><tr><th>Name</th><th>Kind</th><th>Algorithm</th><th>Quantum</th><th>Source</th><th>Created / rotated</th><th>Expires</th><th>State</th><th>Flags</th></tr></thead>
+  <thead><tr><th>Name</th><th>Kind</th><th>Algorithm</th><th>Quantum</th><th>Source</th><th>Created / rotated</th><th>Expires</th><th>State</th><th>Flags</th><th>Used by</th></tr></thead>
   <tbody>
   {% for a in assets %}
   <tr>
@@ -135,10 +136,36 @@
       {% if a.fips_validated %}<span class="pill">FIPS</span>{% endif %}
       {% if a.self_signed %}<span class="pill">self-signed</span>{% endif %}
     </td>
+    <td class="small">
+      {% for app in a.applications %}<span class="pill app">{{ app }}</span> {% endfor %}
+      {% if a.used_by_ids %}<div class="muted">{{ a.used_by_ids[:4]|join(', ') }}{% if a.used_by_ids|length > 4 %} +{{ a.used_by_ids|length - 4 }}{% endif %}</div>{% endif %}
+      {% if not a.applications and not a.used_by_ids %}<span class="muted">—</span>{% endif %}
+    </td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
+
+{% if applications %}
+<h2>Applications ({{ applications|length }})</h2>
+<p class="small muted">Which application uses which key — from the declared <code>applications:</code> (SBOM-backed) and the consumers each key store reports (IAM principals, grants, Vault policies). The worst finding on any linked asset is the application's exposure.</p>
+<table>
+  <thead><tr><th>Application</th><th>Owner</th><th>SBOM</th><th>Linked assets</th><th>Findings</th><th>Worst</th></tr></thead>
+  <tbody>
+  {% for app in applications %}
+  <tr>
+    <td>{{ app.name }}{% if app.version %} <span class="small muted">{{ app.version }}</span>{% endif %}{% if app.purl %}<div class="small muted">{{ app.purl }}</div>{% endif %}</td>
+    <td>{{ app.owner or '—' }}</td>
+    <td class="small">{{ app.sbom or '—' }}</td>
+    <td>{{ app.assets }}</td>
+    <td>{{ app.findings }}</td>
+    <td>{% if app.worst_severity %}<span class="sev {{ app.worst_severity }}">{{ app.worst_severity }}</span>{% else %}<span class="ok">none</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if summary.assets_unlinked %}<p class="small muted">{{ summary.assets_unlinked }} asset(s) are not linked to any application (see <code>unlinked-asset</code> findings).</p>{% endif %}
+{% endif %}
 
 <h2>Sources</h2>
 <table>

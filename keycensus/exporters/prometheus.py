@@ -58,7 +58,30 @@ class InventoryCollector:
             src_up.add_metric([s.name, s.type], 0.0 if s.error else 1.0)
             src_assets.add_metric([s.name, s.type], float(len(s.assets)))
             src_dur.add_metric([s.name, s.type], s.duration_seconds)
-        yield from (src_up, src_assets, src_dur)
+        yield src_up
+        yield src_assets
+        yield src_dur
+
+        if inv.applications:
+            from ..linking import impact
+
+            app_assets = GaugeMetricFamily(f"{NS}_application_assets", "Crypto assets linked to the application",
+                                           labels=["application", "owner"])  # fmt: skip
+            app_worst = GaugeMetricFamily(
+                f"{NS}_application_worst_finding",
+                "Worst open finding on any asset the application uses (0 none, 1 info .. 5 critical)",
+                labels=["application", "owner"],
+            )
+            rank = {"info": 1, "low": 2, "medium": 3, "high": 4, "critical": 5}
+            for row in impact(inv):
+                labels = [row["name"], row["owner"] or ""]
+                app_assets.add_metric(labels, float(row["assets"]))
+                app_worst.add_metric(labels, float(rank.get(row["worst_severity"] or "", 0)))
+            yield app_assets
+            yield app_worst
+            unlinked = GaugeMetricFamily(f"{NS}_assets_unlinked", "Keys/certs no declared application uses")
+            unlinked.add_metric([], float(inv.summary().get("assets_unlinked") or 0))
+            yield unlinked
 
         assets = GaugeMetricFamily(
             f"{NS}_assets", "Assets by source, kind, algorithm and quantum class",

@@ -1,4 +1,4 @@
-"""Command line: scan | diff | upload | serve | rules | collectors | controls | validate."""
+"""Command line: scan | link | diff | upload | serve | rules | collectors | controls | validate."""
 
 from __future__ import annotations
 
@@ -77,6 +77,10 @@ def scan(config_path, output_dir, formats, policy_path, fail_on, baseline_path, 
     s = inv.summary()
     click.echo("")
     click.echo(f"assets:   {s['assets']}  ({', '.join(f'{k}={v}' for k, v in s['assets_by_kind'].items())})")
+    if inv.applications:
+        click.echo(
+            f"apps:     {s['applications']} linked to {s['assets_linked']} assets, {s['assets_unlinked']} unlinked"
+        )
     click.echo(f"sources:  {s['sources'] - s['sources_failed']}/{s['sources']} ok")
     for src in inv.sources:
         status = f"ERROR {src.error}" if src.error else f"{len(src.assets)} assets"
@@ -206,6 +210,48 @@ def diff(before, after, fmt, output, fail_on_new, fail_on_change):
     if fail_on_change and not d.empty:
         click.echo("\nfailing: inventory changed", err=True)
         sys.exit(4)
+
+
+@main.command()
+@click.option("-c", "--config", "config_path", required=True, type=click.Path(exists=True),
+              help="Config with the applications: list (sources are not scanned).")  # fmt: skip
+@click.option("-i", "--inventory", "inventory_path", default="out/inventory.json", show_default=True,
+              type=click.Path(exists=True), help="A previous scan to link.")  # fmt: skip
+@click.option("-o", "--output-dir", default="./out", show_default=True)
+@click.option("-f", "--format", "formats", multiple=True, default=("json", "cbom", "csv", "html"),
+              type=click.Choice(sorted(FORMATS)), show_default=True)  # fmt: skip
+@click.option("-p", "--policy", "policy_path", default=None)
+@click.option("--sbom", "sboms", multiple=True, type=click.Path(exists=True),
+              help="Extra SBOMs to link as applications (metadata.component; auto-match only).")  # fmt: skip
+def link(config_path, inventory_path, output_dir, formats, policy_path, sboms):
+    """Link applications (SBOMs) to the assets of an existing scan, and rewrite the reports."""
+    from .diff import load_inventory_dict
+    from .linking import LinkingError, apply, impact
+    from .model import Inventory
+
+    try:
+        config = load(config_path)
+        policy = Policy.load(policy_path or config.policy)
+        inv = Inventory.from_dict(load_inventory_dict(inventory_path))
+        entries = list(config.applications) + [{"sbom": p} for p in sboms]
+        if not entries:
+            raise click.ClickException("nothing to link: add applications: to the config or pass --sbom")
+        apply(inv, entries, policy, base_dir=config.base_dir, auto_match=config.auto_match)
+    except (ConfigError, LinkingError, ValueError, FileNotFoundError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    for fmt in formats:
+        render, filename = FORMATS[fmt]
+        (out / filename).write_text(render(inv))
+        click.echo(f"wrote {out / filename}", err=True)
+    click.echo("")
+    for row in impact(inv):
+        worst = row["worst_severity"] or "-"
+        click.echo(f"  {row['name']:32} {row['assets']:4} assets  {row['findings']:4} findings  worst {worst}")
+    s = inv.summary()
+    if s.get("assets_unlinked"):
+        click.echo(f"\n{s['assets_unlinked']} asset(s) not linked to any application")
 
 
 @main.group()

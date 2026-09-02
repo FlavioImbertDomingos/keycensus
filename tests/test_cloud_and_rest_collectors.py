@@ -300,10 +300,23 @@ def test_gcp_kms(monkeypatch):
         },
     )
 
+    sa = "serviceAccount:payments-api@acme.iam.gserviceaccount.com"
+    responses.add(responses.GET, f"{GCP}/v1/{ring}/cryptoKeys/dek:getIamPolicy", json={"bindings": [
+        {"role": "roles/cloudkms.cryptoKeyEncrypterDecrypter", "members": [sa, "group:data-eng@acme.com"]},
+        {"role": "roles/cloudkms.viewer", "members": ["user:auditor@acme.com"]}]})  # fmt: skip
+    responses.add(
+        responses.GET, f"{GCP}/v1/{ring}/cryptoKeys/signer:getIamPolicy", status=403, json={"error": {"code": 403}}
+    )
+    responses.add(responses.GET, f"{GCP}/v1/{ring}/cryptoKeys/ext:getIamPolicy", json={"bindings": []})
+    responses.add(responses.GET, f"{GCP}/v1/{ring}/cryptoKeys/gone:getIamPolicy", json={"bindings": []})
     res = GcpKmsCollector(source("g", "gcp-kms", project="acme", auth="token", token_env="GT", endpoint=GCP)).run()
     assert res.error is None, res.error
     by = {a.name: a for a in res.assets}
     assert set(by) == {"dek", "signer", "ext"}  # 'gone' (all versions destroyed) filtered by default
+    assert [(u["type"], u["id"]) for u in by["dek"].used_by] == [("service", sa), ("group", "group:data-eng@acme.com")]
+    assert (
+        by["dek"].used_by[0]["via"] == "iam:cryptoKeyEncrypterDecrypter" and by["signer"].used_by == []
+    )  # 403 tolerated
     dek = by["dek"]
     assert dek.algorithm == "AES" and dek.key_size == 256 and dek.hardware_backed and dek.fips_validated
     assert dek.rotation_enabled is True and dek.last_rotated.year == 2025 and dek.created.year == 2023
@@ -370,6 +383,8 @@ def test_ciphertrust(monkeypatch):
             "unexportable": True,
             "labels": {"pci": "cde"},
             "meta": {"rotationFrequencyDays": 90},
+            "application": "payments-api",
+            "owner": "local|alice",
         },
         {
             "id": "2",
@@ -434,6 +449,8 @@ def test_ciphertrust(monkeypatch):
     dek = by["pan-dek"]
     assert dek.algorithm == "AES" and dek.key_size == 256 and dek.exportable is False and dek.hardware_backed
     assert dek.purposes == ["encrypt", "decrypt"] and dek.rotation_enabled is True and dek.tags == {"pci": "cde"}
+    assert dek.used_by == [{"type": "application", "id": "payments-api", "via": "ctm-application"},
+                           {"type": "user", "id": "local|alice", "via": "ctm-owner"}]  # fmt: skip
     assert dek.last_rotated is not None and by["sig"].last_rotated is None
     assert by["sig"].curve == "P-384" and by["sig"].exportable is True and by["sig"].expires.year == 2027
     assert by["legacy"].algorithm == "3DES" and by["legacy"].state == "deactivated"

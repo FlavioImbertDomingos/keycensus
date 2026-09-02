@@ -96,6 +96,12 @@ class CryptoAsset:
     weak_versions_accepted: list[str] = field(default_factory=list)
     tags: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
+    # who uses it -- inferred by the collector (IAM principals, grants, Vault policies, NTLS clients,
+    # CipherTrust application/owner ...). Each entry: {"type": principal|policy|application|client|user,
+    # "id": "...", "via": "iam-policy|grant|vault-policy|owner|..."}
+    used_by: list[dict[str, str]] = field(default_factory=list)
+    # applications linked to this asset (names), filled by keycensus.linking
+    applications: list[str] = field(default_factory=list)
 
     # ------------------------------------------------------------ identity
     @property
@@ -141,6 +147,19 @@ class CryptoAsset:
         d["display_algorithm"] = self.display_algorithm
         return d
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> CryptoAsset:
+        """Inverse of to_dict() (for re-linking / re-reporting a saved inventory.json)."""
+        names = {f.name for f in cls.__dataclass_fields__.values()}
+        kw = {k: v for k, v in d.items() if k in names}
+        for k in ("created", "last_rotated", "expires"):
+            v = kw.get(k)
+            if isinstance(v, str):
+                kw[k] = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            elif v is not None and not isinstance(v, datetime):
+                kw[k] = None
+        return cls(**kw)
+
 
 @dataclass
 class Finding:
@@ -162,6 +181,34 @@ class Finding:
 
 
 @dataclass
+class Application:
+    """An application (usually described by an SBOM) and the cryptographic assets it uses."""
+
+    name: str
+    version: str | None = None
+    bom_ref: str | None = None  # bom-ref of the application component (from its SBOM, or generated)
+    purl: str | None = None
+    owner: str | None = None
+    description: str | None = None
+    sbom_path: str | None = None
+    sbom_serial: str | None = None  # serialNumber of the SBOM the application came from
+    sbom_components: int | None = None
+    uses: list[dict[str, Any]] = field(default_factory=list)  # selectors from the config
+    asset_ids: list[str] = field(default_factory=list)
+    matches: dict[str, list[str]] = field(default_factory=dict)  # asset id -> why it matched
+
+    @property
+    def ref(self) -> str:
+        return self.bom_ref or f"app:{self.name}" + (f"@{self.version}" if self.version else "")
+
+    def to_dict(self) -> dict[str, Any]:
+        d = asdict(self)
+        d["ref"] = self.ref
+        d["assets"] = len(self.asset_ids)
+        return d
+
+
+@dataclass
 class SourceResult:
     """What one collector produced, plus whether it worked."""
 
@@ -180,10 +227,36 @@ class Inventory:
     sources: list[SourceResult]
     findings: list[Finding] = field(default_factory=list)
     policy_name: str = "default"
+    applications: list[Application] = field(default_factory=list)
 
     @property
     def assets(self) -> list[CryptoAsset]:
         return [a for s in self.sources for a in s.assets]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Inventory:
+        """Rebuild an Inventory from inventory.json (assets, findings, sources, applications)."""
+        by_source: dict[str, list[CryptoAsset]] = {}
+        for a in d.get("assets") or []:
+            by_source.setdefault(a["source"], []).append(CryptoAsset.from_dict(a))
+        sources = [
+            SourceResult(name=s["name"], type=s["type"], assets=by_source.get(s["name"], []), error=s.get("error"),
+                         duration_seconds=float(s.get("duration_seconds") or 0))
+            for s in d.get("sources") or []
+        ]  # fmt: skip
+        generated = d.get("generated_at")
+        inv = cls(
+            generated_at=datetime.fromisoformat(generated.replace("Z", "+00:00")) if generated else utcnow(),
+            sources=sources,
+            policy_name=str(d.get("policy", "default")),
+        )
+        fnames = {f.name for f in Finding.__dataclass_fields__.values()}
+        inv.findings = [Finding(**{k: v for k, v in f.items() if k in fnames}) for f in d.get("findings") or []]
+        anames = {f.name for f in Application.__dataclass_fields__.values()}
+        inv.applications = [
+            Application(**{k: v for k, v in a.items() if k in anames}) for a in d.get("applications") or []
+        ]
+        return inv
 
     def summary(self) -> dict[str, Any]:
         by_sev = {s: 0 for s in SEVERITIES}
@@ -194,10 +267,14 @@ class Inventory:
         for a in self.assets:
             by_kind[a.kind] = by_kind.get(a.kind, 0) + 1
             by_alg[a.display_algorithm] = by_alg.get(a.display_algorithm, 0) + 1
+        linked = sum(1 for a in self.assets if a.applications)
         return {
             "assets": len(self.assets),
             "sources": len(self.sources),
             "sources_failed": sum(1 for s in self.sources if s.error),
+            "applications": len(self.applications),
+            "assets_linked": linked,
+            "assets_unlinked": len(self.assets) - linked if self.applications else None,
             "findings": len(self.findings),
             "findings_by_severity": by_sev,
             "assets_by_kind": by_kind,
@@ -220,6 +297,7 @@ class Inventory:
                 }
                 for s in self.sources
             ],
+            "applications": [a.to_dict() for a in self.applications],
             "assets": [a.to_dict() for a in self.assets],
             "findings": [f.to_dict() for f in self.findings],
         }

@@ -55,9 +55,19 @@ def main():
             kms.disable_key(KeyId=md["KeyId"])
         return md["KeyId"]
 
-    make("payments-cmk", rotate=True, tags={"app": "payments", "pci": "true"})
+    pay = make("payments-cmk", rotate=True, tags={"app": "payments", "pci": "true"})
     make("legacy-cmk", rotate=False, tags={"app": "reporting"})
-    make("jwt-signing", "RSA_2048", "SIGN_VERIFY", tags={"app": "auth"})
+    jwt = make("jwt-signing", "RSA_2048", "SIGN_VERIFY", tags={"app": "auth"})
+    # who uses them: grants are how services get access -> keycensus reports them as consumers
+    for key, role, ops in (
+        (pay, "arn:aws:iam::123456789012:role/payments-api", ["Encrypt", "Decrypt", "GenerateDataKey"]),
+        (pay, "arn:aws:iam::123456789012:role/payments-batch", ["Decrypt"]),
+        (jwt, "arn:aws:iam::123456789012:role/auth-service", ["Sign", "Verify"]),
+    ):
+        try:
+            kms.create_grant(KeyId=key, GranteePrincipal=role, Operations=ops, Name=role.rsplit("/", 1)[1])
+        except Exception as exc:  # noqa: BLE001 - older moto without grants
+            print(f"grant skipped: {exc}")
     make("envelope-rsa4096", "RSA_4096", "ENCRYPT_DECRYPT", tags={"app": "archive"})
     make("webhook-ecdsa", "ECC_NIST_P256", "SIGN_VERIFY")
     make("api-hmac", "HMAC_256", "GENERATE_VERIFY_MAC")

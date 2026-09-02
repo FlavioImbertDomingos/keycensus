@@ -140,6 +140,21 @@ def test_vault_collector(monkeypatch):
     responses.add(responses.GET, f"{VAULT}/v1/sys/mounts", json={"data": {
         "transit/": {"type": "transit"}, "pki/": {"type": "pki"}, "secret/": {"type": "kv"}}})  # fmt: skip
     responses.add(responses.GET, f"{VAULT}/v1/transit/keys", json={"data": {"keys": ["dek", "rsa"]}})
+    responses.add(
+        responses.GET,
+        f"{VAULT}/v1/sys/policies/acl",
+        json={"data": {"keys": ["default", "root", "payments-api", "ops"]}},
+    )
+    pay_policy = (
+        'path "transit/encrypt/dek" { capabilities = ["update"] }\n'
+        'path "transit/decrypt/d*" { capabilities = ["update"] }'
+    )
+    ops_policy = (
+        'path "transit/keys/*" { capabilities = ["read", "list"] }\npath "secret/*" { capabilities = ["read"] }'
+    )
+    acl = f"{VAULT}/v1/sys/policies/acl"
+    responses.add(responses.GET, f"{acl}/payments-api", json={"data": {"name": "payments-api", "policy": pay_policy}})
+    responses.add(responses.GET, f"{acl}/ops", json={"data": {"name": "ops", "policy": ops_policy}})
     responses.add(responses.GET, f"{VAULT}/v1/transit/keys/dek", json={"data": {
         "type": "aes256-gcm96", "keys": {"1": 1700000000, "2": 1720000000}, "latest_version": 2,
         "auto_rotate_period": 2592000, "exportable": False, "supports_encryption": True,
@@ -164,6 +179,10 @@ def test_vault_collector(monkeypatch):
     assert by["rsa"].algorithm == "RSA" and by["rsa"].exportable and by["rsa"].rotation_enabled is False
     assert "sign" in by["rsa"].purposes and "encrypt" in by["rsa"].purposes
     assert by["app.demo.bank"].kind == KIND_CERTIFICATE and by["app.demo.bank"].source_type == "vault-pki"
+    # ACL policies -> consumers (ops matches every key via transit/keys/*; payments-api only dek)
+    assert {u["id"] for u in by["dek"].used_by} == {"payments-api", "ops"}
+    assert {u["id"] for u in by["rsa"].used_by} == {"ops"}
+    assert next(u for u in by["dek"].used_by if u["id"] == "payments-api")["via"] == "vault-policy:encrypt"
     # every request carried the token
     assert all(c.request.headers.get("X-Vault-Token") == "s.token" for c in responses.calls)
 
@@ -222,6 +241,17 @@ def test_aws_kms_collector(monkeypatch):
         rsa = kms.create_key(KeySpec="RSA_2048", KeyUsage="SIGN_VERIFY")["KeyMetadata"]
         off = kms.create_key(KeySpec="SYMMETRIC_DEFAULT")["KeyMetadata"]
         kms.disable_key(KeyId=off["KeyId"])
+        kms.create_grant(KeyId=sym["KeyId"], GranteePrincipal="arn:aws:iam::123456789012:role/payments-api",
+                         Operations=["Encrypt", "Decrypt"], Name="payments-api")  # fmt: skip
+        kms.put_key_policy(KeyId=rsa["KeyId"], PolicyName="default", Policy=json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "root", "Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::123456789012:root"},
+                 "Action": "kms:*", "Resource": "*"},
+                {"Sid": "signer", "Effect": "Allow", "Action": ["kms:Sign"], "Resource": "*",
+                 "Principal": {"AWS": ["arn:aws:iam::123456789012:role/auth-service"],
+                               "Service": "lambda.amazonaws.com"}},
+            ]}))  # fmt: skip
 
         from keycensus.collectors.aws_kms import AwsKmsCollector
 
@@ -233,6 +263,13 @@ def test_aws_kms_collector(monkeypatch):
     assert p.hardware_backed and p.fips_validated and p.created is not None
     r = by[rsa["Arn"]]
     assert r.algorithm == "RSA" and r.key_size == 2048 and r.purposes == ["sign", "verify"]
+    # who uses them: grants and key-policy principals (root and * excluded)
+    assert p.used_by == [
+        {"type": "principal", "id": "arn:aws:iam::123456789012:role/payments-api", "via": "grant:payments-api"}
+    ]
+    ids = {u["id"]: u for u in r.used_by}
+    assert "arn:aws:iam::123456789012:role/auth-service" in ids and ids["lambda.amazonaws.com"]["type"] == "service"
+    assert not any(u["id"].endswith(":root") for u in r.used_by)
     assert by[off["Arn"]].state == "deactivated"
 
 

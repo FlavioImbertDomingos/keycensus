@@ -9,7 +9,7 @@ COLUMNS = [
     "purposes", "created", "last_rotated", "expires", "age_days", "days_until_expiry", "state",
     "rotation_enabled", "exportable", "hardware_backed", "fips_validated", "classical_bits",
     "quantum_class", "signature_hash", "subject", "issuer", "protocol_version", "cipher_suites",
-    "location", "findings",
+    "location", "applications", "used_by", "findings",
 ]  # fmt: skip
 
 
@@ -27,6 +27,8 @@ def render(inv: Inventory) -> str:
         d["cipher_suites"] = " ".join(a.cipher_suites)
         d["classical_bits"] = s.classical_bits
         d["quantum_class"] = s.quantum_class
+        d["applications"] = " ".join(a.applications)
+        d["used_by"] = " ".join(u.get("id", "") for u in a.used_by)
         d["findings"] = " ".join(by_asset.get(a.id, []))
         w.writerow(d)
     return buf.getvalue()

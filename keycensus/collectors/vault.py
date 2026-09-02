@@ -9,14 +9,17 @@
       pki_mounts: [pki, pki_int]       # default: auto-discover
       verify_tls: true                 # or a CA bundle path
       hardware_backed: false           # true if Transit uses Managed Keys / Seal HSM
+      include_policies: true           # who uses the key: ACL policies granting transit/<op>/<name> -> used_by
 
-Needs a token that can `list` and `read` the key/cert metadata. Nothing more.
+Needs a token that can `list` and `read` the key/cert metadata, plus `sys/policies/acl` (list + read)
+for `include_policies` -- a 403 there is tolerated. Nothing more.
 Uses plain HTTP so there is no extra dependency.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 
 import requests
@@ -99,11 +102,14 @@ class VaultCollector(Collector):
     # ------------------------------------------------------------ collect
     def collect(self) -> list[CryptoAsset]:
         assets: list[CryptoAsset] = []
+        policies = self._policies() if self.opt.get("include_policies", True) else {}
         for mount in self._mounts("transit", self.opt.get("transit_mounts")):
             for name in self._list(f"{mount}/keys"):
                 data = self._get(f"{mount}/keys/{name}")
                 if data:
-                    assets.append(self._transit_asset(mount, name, data))
+                    asset = self._transit_asset(mount, name, data)
+                    asset.used_by = _policy_consumers(policies, mount, name)
+                    assets.append(asset)
         for mount in self._mounts("pki", self.opt.get("pki_mounts")):
             for serial in self._list(f"{mount}/certs"):
                 data = self._get(f"{mount}/cert/{serial}")
@@ -115,6 +121,25 @@ class VaultCollector(Collector):
                         continue
                     assets.append(self._pki_asset(mount, serial, cert, data))
         return assets
+
+    def _policies(self) -> dict[str, str]:
+        """ACL policy name -> HCL/JSON text (root/default skipped). Empty when not permitted."""
+        try:
+            names = self._list("sys/policies/acl")
+        except RuntimeError as exc:
+            log.debug("[%s] cannot list policies: %s", self.name, exc)
+            return {}
+        out = {}
+        for n in names:
+            if n in ("root", "default"):
+                continue
+            try:
+                data = self._get(f"sys/policies/acl/{n}")
+            except RuntimeError:
+                continue
+            if data and data.get("policy"):
+                out[n] = str(data["policy"])
+        return out
 
     def _transit_asset(self, mount: str, name: str, d: dict) -> CryptoAsset:
         ktype = str(d.get("type", ""))
@@ -178,6 +203,32 @@ class VaultCollector(Collector):
             extra={**fields.pop("extra"), "revocation_time": d.get("revocation_time")},
             **fields,
         )
+
+
+_TRANSIT_OPS = ("encrypt", "decrypt", "sign", "verify", "hmac", "rewrap", "datakey", "keys", "export", "backup")
+
+
+def _policy_consumers(policies: dict[str, str], mount: str, key: str) -> list[dict]:
+    """Which ACL policies grant an operation on this transit key (exact path or glob covering it)."""
+    out = []
+    for pname, text in policies.items():
+        for m in re.finditer(r'path\s+"([^"]+)"', text):
+            path = m.group(1)
+            if not path.startswith(mount + "/"):
+                continue
+            parts = path[len(mount) + 1 :].split("/", 1)
+            if len(parts) != 2 or parts[0] not in _TRANSIT_OPS:
+                continue
+            pattern = parts[1]
+            if (
+                pattern == key
+                or (pattern.endswith("*") and key.startswith(pattern[:-1]))
+                or pattern == "+"
+                or pattern == "*"
+            ):
+                out.append({"type": "policy", "id": pname, "via": f"vault-policy:{parts[0]}"})
+                break
+    return out
 
 
 def _parse_ts(value) -> datetime | None:

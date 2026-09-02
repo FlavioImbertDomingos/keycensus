@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0] - 2026-09-02
+
+### Added
+- SBOM <-> CBOM linking (`docs/LINKING.md`): `applications:` in the config, each optionally backed by a
+  CycloneDX SBOM, with selectors (`source`, `name`, `tag`, `principal`, `kind`, ...) and automatic matching
+  against inferred consumers. Collectors now report who may use each key (`asset.used_by`): AWS KMS grants and
+  key-policy principals, Google Cloud KMS IAM bindings, Vault ACL policies on transit paths, CipherTrust
+  application/owner. Outputs: `application` components + `dependsOn` in the CBOM, an Applications table and
+  *Used by* column in the HTML report, `applications`/`used_by` in JSON and CSV, `keycensus_application_*`
+  metrics, diff-mode awareness, and an `unlinked-asset` finding for orphan keys. New `keycensus link` command
+  re-links a saved scan with new SBOMs without rescanning.
+- Live integration tests for Azure Key Vault and Google Cloud KMS (`tests/integration/`, skipped without
+  credentials), fixture bootstrap/teardown scripts, and an OIDC-only workflow gated on repository variables.
+- Demo: two SBOMs, KMS grants and Vault policies so the compose stack shows linking end to end.
+
+### Changed
+- `Inventory.from_dict` / `CryptoAsset.from_dict` round-trip `inventory.json` (used by `link`).
+
 ## [0.2.0] - 2026-09-02
 
 ### Added

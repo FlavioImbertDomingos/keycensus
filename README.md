@@ -79,6 +79,7 @@ Nothing is faked in the *code path* — only the *backends* are stand-ins:
 | `voltage` | A mock inventory export in the canonical Voltage shape | rotation overdue (800 days), 3DES, software-only keys |
 | `app-certs` | A folder of deliberately imperfect PEM files | expired cert, expiring-in-10-days, RSA-1024, orphan private key |
 | `edges` | The mock's HTTPS port, scanned like any TLS endpoint | self-signed, expiring cert |
+| *applications* | Two CycloneDX SBOMs (`demo/sboms/`) plus a declared app, linked to the keys above via selectors, KMS grants and Vault policies | the Applications table, `unlinked-asset` findings for orphan keys |
 
 ### What the output looks like
 
@@ -199,10 +200,12 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | `inventory.csv` | Spreadsheets, GRC uploads | One row per asset with findings column |
 | `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class |
 | `diff.json` / `diff.md` | Change review, CI gates | With `--baseline previous/inventory.json`: assets added / removed / changed, findings new / resolved, sources broken |
+| Applications (in all of the above) | Incident response, ownership | `applications:` + SBOMs → which app uses which key; CBOM gets `application` components with `dependsOn` → keys; `unlinked-asset` findings for orphans |
 
 ```bash
 keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-new high   # exit 3 on new high+ findings
 keycensus diff last/inventory.json out/inventory.json -f markdown                           # or text / json
+keycensus link -c keycensus.yml -i out/inventory.json --sbom sboms/payments-api.cdx.json -o out   # SBOM ↔ CBOM
 keycensus upload dtrack --url https://dtrack.corp --project hsm-estate --version 2026-09-02 --cbom out/cbom.json
 helm install keycensus ./helm/keycensus -f my-values.yaml                                    # Deployment and/or CronJob
 ```
@@ -229,7 +232,9 @@ has the walkthrough.
 ## Documentation
 
 - [docs/COLLECTORS.md](docs/COLLECTORS.md) — every source type, its options, and the permissions it needs
+- [docs/LINKING.md](docs/LINKING.md) — SBOM ↔ CBOM linking: which application uses which key, blast radius, orphan keys
 - [docs/DIFF.md](docs/DIFF.md) — diff mode: what changed since the last scan, and how to gate CI on it
+- [docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md) — live tests against real Azure / GCP accounts via OIDC
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
 - [docs/POLICY.md](docs/POLICY.md) — every rule, how it decides, how to tune it
@@ -261,9 +266,10 @@ has the walkthrough.
 - [x] Diff mode: what changed since the last scan *(0.2.0)*
 - [x] Dependency-Track upload helper *(0.2.0)*
 - [x] Helm chart *(0.2.0)*
-- [ ] Integration tests against real Azure / GCP accounts (needs credentials in CI)
+- [x] SBOM ↔ CBOM linking: which application uses which key *(0.3.0)*
+- [x] Live integration tests against Azure Key Vault and Google Cloud KMS (OIDC, no stored secrets) *(0.3.0 — harness and fixtures; runs once the maintainer's accounts are wired up)*
 - [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
-- [ ] SBOM ↔ CBOM linking: which application uses which key
+- [ ] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.

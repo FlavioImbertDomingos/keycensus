@@ -7,11 +7,13 @@
       auth: default            # default (Application Default Credentials) | token (bearer from token_env/_file)
       token_env: GCP_TOKEN     # only with auth: token -- CI, tests, `gcloud auth print-access-token`
       include_destroyed: false
+      include_iam: true        # who uses the key: IAM bindings on the CryptoKey -> used_by
       endpoint: https://cloudkms.googleapis.com      # override for tests / emulators
 
 Uses the REST API with `requests`; `pip install 'keycensus[gcp]'` adds `google-auth` for
 `auth: default` (workload identity, service-account JSON via GOOGLE_APPLICATION_CREDENTIALS,
-`gcloud auth application-default login`). Needs `roles/cloudkms.viewer` on the project.
+`gcloud auth application-default login`). Needs `roles/cloudkms.viewer` on the project (it includes
+`cloudkms.cryptoKeys.getIamPolicy`, used for `include_iam`; a 403 there is tolerated).
 
 One asset per **CryptoKey**, described by its primary version (or the newest one when there
 is no primary): algorithm from the version, `protectionLevel` (SOFTWARE / HSM / EXTERNAL /
@@ -155,6 +157,7 @@ class GcpKmsCollector(Collector):
         if not locations:
             locations = [loc["locationId"] for loc in self._paged(f"projects/{self.project}/locations", "locations")]
         include_destroyed = bool(self.opt.get("include_destroyed", False))
+        include_iam = bool(self.opt.get("include_iam", True))
         assets: list[CryptoAsset] = []
         for loc in locations:
             for ring in self._paged(f"projects/{self.project}/locations/{loc}/keyRings", "keyRings"):
@@ -163,8 +166,39 @@ class GcpKmsCollector(Collector):
                     asset = self._asset(key, versions, ring["name"])
                     if asset.state == STATE_DESTROYED and not include_destroyed:
                         continue
+                    if include_iam:
+                        asset.used_by = self._consumers(key["name"])
                     assets.append(asset)
         return assets
+
+    _USE_ROLES = ("cryptoKeyEncrypterDecrypter", "cryptoKeyEncrypter", "cryptoKeyDecrypter", "signerVerifier",
+                  "signer", "verifier", "cryptoOperator", "admin", "owner", "editor")  # fmt: skip
+
+    def _consumers(self, key_name: str) -> list[dict]:
+        try:
+            policy = self._get(f"{key_name}:getIamPolicy")
+        except RuntimeError as exc:  # permission denied -> no consumer info, not a failure
+            log.debug("[%s] getIamPolicy %s: %s", self.name, key_name, exc)
+            return []
+        out, seen = [], set()
+        for b in policy.get("bindings") or []:
+            role = str(b.get("role", ""))
+            if not any(r in role for r in self._USE_ROLES):
+                continue
+            for m in b.get("members") or []:
+                if m not in seen:
+                    seen.add(m)
+                    kind = (
+                        "service"
+                        if m.startswith("serviceAccount:")
+                        else "group"
+                        if m.startswith("group:")
+                        else "principal"
+                    )
+                    out.append(
+                        {"type": kind, "id": m, "via": "iam:" + role.rsplit("/", 1)[-1].removeprefix("cloudkms.")}
+                    )
+        return out
 
     def _asset(self, key: dict, versions: list[dict], ring: str) -> CryptoAsset:
         name = key["name"]  # projects/p/locations/l/keyRings/r/cryptoKeys/k

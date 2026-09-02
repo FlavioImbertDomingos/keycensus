@@ -215,7 +215,14 @@ class CipherTrustCollector(Collector):
             exportable = not bool(k["unexportable"])
         elif "neverExportable" in k:
             exportable = not bool(k["neverExportable"])
+        used_by = []
+        if k.get("application"):
+            used_by.append({"type": "application", "id": str(k["application"]), "via": "ctm-application"})
+        owner = k.get("owner") or (meta.get("ownerId") if isinstance(meta, dict) else None)
+        if owner:
+            used_by.append({"type": "user", "id": str(owner), "via": "ctm-owner"})
         return self.asset(
+            used_by=used_by,
             kind=kind,
             name=str(k.get("name") or k.get("id")),
             native_id=str(k.get("id") or k.get("uri") or k.get("name")),

@@ -51,6 +51,7 @@ rules:
   tls-weak-cipher:           {enabled: true, severity: high}
   tls-no-forward-secrecy:    {enabled: true, severity: low}
   unknown-algorithm:         {enabled: true, severity: info}
+  unlinked-asset:            {enabled: true, severity: info}   # only evaluated when `applications:` are declared
 
 # Sources that are hardware-backed by definition (used when a collector cannot tell).
 # Anything else with hardware_backed == false and a protective purpose gets key-software-backed.

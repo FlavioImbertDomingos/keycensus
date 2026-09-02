@@ -42,3 +42,25 @@ sources:
     type: tls
     endpoints: ["voltage:8443"]
     probe_legacy: true
+
+# ---- SBOM <-> CBOM linking: which application uses which key.
+# Each application is backed by a CycloneDX SBOM (name/version/purl from metadata.component) and a
+# few selectors. Automatic matching also links assets whose inferred consumers (KMS grants, Vault
+# policies) mention the application name -- see docs/LINKING.md.
+applications:
+  - sbom: /app/demo/sboms/payments-api.cdx.json
+    owner: payments-team
+    uses:
+      - {source: softhsm, name: "payments-*"}
+      - {source: fake-aws, tag: {app: payments}}
+      - {source: voltage, name: "pan-*"}
+      - {kind: certificate, name: "vault-app.demo.bank"}
+  - sbom: /app/demo/sboms/auth-service.cdx.json
+    uses:
+      - {source: softhsm, name: "signing-*"}
+      - {source: fake-aws, tag: {app: auth}}
+  - name: batch-reporting              # no SBOM yet: still worth declaring, so its keys are not "unlinked"
+    owner: data-platform
+    uses:
+      - {source: fake-aws, name: legacy-cmk}
+      - {principal: "*batch*"}

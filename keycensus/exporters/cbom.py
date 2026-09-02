@@ -14,6 +14,9 @@ Mapping:
     protocol (TLS endpoint)  cryptoProperties.assetType = protocol
                              (+ cipherSuites)
     finding                  vulnerabilities[] entry with `affects` -> the component
+    application (linked)     component type: application (name, version, purl, bom-ref from its
+                             SBOM) + dependencies[].dependsOn -> the crypto assets it uses; the
+                             SBOM itself is referenced via externalReferences[type=bom]
 
 Algorithm components are de-duplicated: every RSA-2048 key points at the one
 `alg:RSA-2048` component, which carries the classical / quantum security levels.
@@ -174,7 +177,35 @@ def _props(asset: CryptoAsset) -> list[dict]:
             )
     for k, v in asset.tags.items():
         out.append({"name": f"tag:{k}", "value": str(v)})
+    for u in asset.used_by:
+        out.append(
+            {"name": f"keycensus:usedBy:{u.get('type', 'principal')}", "value": f"{u.get('id')} ({u.get('via')})"}
+        )
+    for app in asset.applications:
+        out.append({"name": "keycensus:application", "value": app})
     return out
+
+
+def _application_component(app) -> dict:
+    c: dict = {"type": "application", "bom-ref": app.ref, "name": app.name}
+    if app.version:
+        c["version"] = app.version
+    if app.purl:
+        c["purl"] = app.purl
+    if app.description:
+        c["description"] = app.description
+    if app.owner:
+        c["supplier"] = {"name": app.owner}
+    refs = []
+    if app.sbom_serial:
+        refs.append({"type": "bom", "url": app.sbom_serial, "comment": f"SBOM of {app.name}"})
+    if refs:
+        c["externalReferences"] = refs
+    props = [{"name": "keycensus:linkedAssets", "value": str(len(app.asset_ids))}]
+    if app.sbom_path:
+        props.append({"name": "keycensus:sbomPath", "value": app.sbom_path})
+    c["properties"] = props
+    return c
 
 
 def _signature_alg_component(asset: CryptoAsset) -> dict | None:
@@ -210,6 +241,9 @@ def build(inv: Inventory) -> dict:
         elif a.kind == KIND_PROTOCOL:
             components[a.id] = _protocol_component(a)
 
+    for app in inv.applications:
+        components[app.ref] = _application_component(app)
+
     # strip None descriptions (schema disallows null)
     comp_list = []
     for c in components.values():
@@ -243,6 +277,7 @@ def build(inv: Inventory) -> dict:
             "properties": [
                 {"name": "keycensus:policy", "value": inv.policy_name},
                 {"name": "keycensus:sources", "value": str(len(inv.sources))},
+                {"name": "keycensus:applications", "value": str(len(inv.applications))},
             ]
             + [
                 {
@@ -255,7 +290,8 @@ def build(inv: Inventory) -> dict:
         "components": comp_list,
         "dependencies": [
             {"ref": a.id, "dependsOn": [_alg_ref(a)]} for a in inv.assets if a.kind in (KIND_KEY, KIND_CERTIFICATE)
-        ],
+        ]
+        + [{"ref": app.ref, "dependsOn": list(app.asset_ids)} for app in inv.applications],
         "vulnerabilities": vulns,
     }
 

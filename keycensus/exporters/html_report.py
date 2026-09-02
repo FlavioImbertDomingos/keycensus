@@ -9,6 +9,7 @@ from jinja2 import Environment, select_autoescape
 from .. import __version__
 from ..analysis import strength
 from ..analysis.controls import describe
+from ..linking import impact
 from ..model import KIND_PROTOCOL, Inventory, iso
 
 _Q_CSS = {
@@ -38,6 +39,7 @@ def render(inv: Inventory) -> str:
         d["created"] = (iso(a.created) or "")[:10] or None
         d["last_rotated"] = (iso(a.last_rotated) or "")[:10] or None
         d["expires"] = (iso(a.expires) or "")[:10] or None
+        d["used_by_ids"] = [u.get("id", "") for u in a.used_by]
         assets.append(d)
         if a.kind != KIND_PROTOCOL:
             pqc["total"] += 1
@@ -75,6 +77,7 @@ def render(inv: Inventory) -> str:
             for s in inv.sources
         ],
         pqc=pqc,
+        applications=impact(inv),
         controls=controls,
         control_titles=control_titles,
         version=__version__,
