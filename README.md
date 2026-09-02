@@ -2,7 +2,8 @@
 
 **A census of every cryptographic key, certificate and TLS endpoint you own — and what's wrong with them.**
 
-<img width="914" height="506" alt="image" src="https://github.com/user-attachments/assets/6031385b-dbd2-4271-bee7-2a4d30f5f77b" />
+<img width="1259" height="691" alt="image" src="https://github.com/user-attachments/assets/72bfa9da-9c43-49be-8ff0-c0693996d0e7" />
+
 
 One command scans your HSMs (PKCS#11, CipherTrust Manager, KeySafe 5), Vault, AWS KMS, Azure Key Vault /
 Managed HSM, Google Cloud KMS, Voltage, certificate folders and TLS ports; produces a
@@ -38,8 +39,6 @@ Why now? Two reasons. **PCI DSS 4.0** now *requires* the list (requirement 12.3.
 March 2025). And **quantum computers** will eventually open a whole category of today's locks
 (RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
 You can't replace what you haven't counted.
-
-<img width="1259" height="691" alt="image" src="https://github.com/user-attachments/assets/72bfa9da-9c43-49be-8ff0-c0693996d0e7" />
 
 
 ---
