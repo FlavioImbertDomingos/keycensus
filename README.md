@@ -10,6 +10,8 @@ and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** a
 
 <img width="791" height="795" alt="image" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
 
+<img width="914" height="506" alt="image" src="https://github.com/user-attachments/assets/6031385b-dbd2-4271-bee7-2a4d30f5f77b" />
+
 [![CI](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml/badge.svg)](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CycloneDX 1.6](https://img.shields.io/badge/CBOM-CycloneDX%201.6-orange.svg)](docs/CBOM.md)
