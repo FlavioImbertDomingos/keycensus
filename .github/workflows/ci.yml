@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    name: Lint + tests (SoftHSM, moto, live TLS)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: System deps (SoftHSM for the PKCS#11 tests)
+        run: sudo apt-get update -q && sudo apt-get install -y -q softhsm2
+      - name: Install
+        run: |
+          pip install ruff
+          pip install -e ".[test]"
+      - name: Ruff
+        run: |
+          ruff check keycensus tests demo mock-voltage grafana
+          ruff format --check keycensus tests demo mock-voltage grafana
+      - name: Pytest
+        run: python -m pytest -q
+
+  prometheus-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker run --rm -v "$PWD/prometheus:/p:ro" --entrypoint promtool prom/prometheus:v3.5.0 check rules /p/alerts/keycensus.rules.yml
+          docker run --rm -v "$PWD/prometheus:/p:ro" --entrypoint promtool prom/prometheus:v3.5.0 check config /p/prometheus.yml
+
+  compose-smoke:
+    name: docker compose smoke test
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot the stack
+        run: docker compose up -d --build
+      - name: Wait for the first scan
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:9742/healthz >/dev/null; then echo ready; break; fi
+            sleep 3
+          done
+          curl -sf http://localhost:9742/healthz
+      - name: Every demo source scanned OK
+        run: |
+          curl -sf http://localhost:9742/inventory.json > inv.json
+          python3 - <<'EOF'
+          import json, sys
+          inv = json.load(open("inv.json"))
+          bad = [s for s in inv["sources"] if s["error"]]
+          print(json.dumps(inv["summary"], indent=2))
+          for s in inv["sources"]: print(s["name"], s["type"], s["assets"], s["error"] or "ok")
+          assert not bad, f"sources failed: {bad}"
+          assert inv["summary"]["assets"] >= 30
+          assert inv["summary"]["findings_by_severity"]["critical"] >= 1
+          EOF
+      - name: CBOM is served and metrics exist
+        run: |
+          curl -sf http://localhost:9742/cbom.json | python3 -c "import json,sys; b=json.load(sys.stdin); assert b['specVersion']=='1.6' and b['components']"
+          curl -sf http://localhost:9742/metrics | grep -q '^keycensus_findings_by_severity'
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  publish-image:
+    runs-on: ubuntu-latest
+    needs: [test, prometheus-rules, compose-smoke]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
