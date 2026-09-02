@@ -1,0 +1,21 @@
+{{- if not .Values.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keycensus.fullname" . }}
+  labels:
+    {{- include "keycensus.labels" . | nindent 4 }}
+data:
+  keycensus.yml: |
+    {{- if .Values.policy }}
+    policy: /config/policy.yml
+    {{- else }}
+    policy: {{ .Values.config.policy | default "default" }}
+    {{- end }}
+    sources:
+      {{- toYaml .Values.config.sources | nindent 6 }}
+  {{- if .Values.policy }}
+  policy.yml: |
+    {{- .Values.policy | nindent 4 }}
+  {{- end }}
+{{- end }}

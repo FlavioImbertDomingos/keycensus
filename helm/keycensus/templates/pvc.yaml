@@ -1,0 +1,17 @@
+{{- $s := .Values.mode.scan }}
+{{- if and $s.enabled $s.baseline.enabled $s.baseline.persistence.enabled (not $s.baseline.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "keycensus.fullname" . }}-out
+  labels:
+    {{- include "keycensus.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with $s.baseline.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $s.baseline.persistence.size }}
+{{- end }}

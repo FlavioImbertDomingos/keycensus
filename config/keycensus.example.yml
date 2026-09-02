@@ -39,6 +39,36 @@ sources:
     # profile: prod
     include_aws_managed: false
 
+  # ---- Azure Key Vault (or Managed HSM: https://<name>.managedhsm.azure.net)
+  - name: kv-payments
+    type: azure-keyvault
+    vault_url: https://payments-kv.vault.azure.net
+    auth: default                    # DefaultAzureCredential; or auth: token + token_env: AZURE_TOKEN
+    include_certificates: true
+
+  # ---- Google Cloud KMS
+  - name: gcp-payments
+    type: gcp-kms
+    project: acme-payments-prod
+    # locations: [global, us-east1]  # default: all
+    auth: default                    # Application Default Credentials; or auth: token + token_env: GCP_TOKEN
+
+  # ---- Thales CipherTrust Manager (REST)
+  - name: ctm-prod
+    type: ciphertrust
+    url: https://ctm.example.com
+    username: keycensus
+    password_env: CTM_PASSWORD
+    # domain: payments
+    hardware_backed: true            # HSM-anchored domain
+
+  # ---- Entrust KeySafe 5 (nShield estate, REST)
+  - name: nshield-estate
+    type: keysafe5
+    url: https://keysafe5.example.com
+    auth: bearer
+    token_env: KS5_TOKEN
+
   # ---- Voltage SecureData (inventory export)
   - name: voltage
     type: voltage

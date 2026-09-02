@@ -1,0 +1,14 @@
+# `helm lint --values ci/scan-values.yaml` / CI render of the CronJob path
+mode:
+  serve:
+    enabled: false
+  scan:
+    enabled: true
+    failOnNew: high
+    dependencyTrack:
+      enabled: true
+      url: https://dtrack.example.com
+      apiKeySecret: keycensus-dtrack
+      project: hsm-estate
+      parent: crypto
+existingSecret: keycensus-secrets

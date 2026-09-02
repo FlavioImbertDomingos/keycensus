@@ -1,0 +1,21 @@
+keycensus {{ .Chart.AppVersion }} deployed as release {{ .Release.Name }}.
+
+{{- if .Values.mode.serve.enabled }}
+
+Serve mode: rescans every {{ .Values.mode.serve.interval }} and serves
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "keycensus.fullname" . }} {{ .Values.service.port }}
+  open http://localhost:{{ .Values.service.port }}/report.html      (also /cbom.json /inventory.json /metrics)
+{{- end }}
+{{- if .Values.mode.scan.enabled }}
+
+Scan mode: CronJob {{ include "keycensus.fullname" . }}-scan on schedule "{{ .Values.mode.scan.schedule }}"
+{{- if .Values.mode.scan.baseline.enabled }}, keeping the previous scan as a baseline and writing diff.json / diff.md{{ end }}
+{{- if .Values.mode.scan.dependencyTrack.enabled }}, uploading the CBOM to {{ .Values.mode.scan.dependencyTrack.url }}{{ end }}.
+
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "keycensus.fullname" . }}-scan scan-now
+{{- end }}
+{{- if not .Values.existingSecret }}
+
+No existingSecret set: any *_env secret your sources reference (HSM_PIN, VAULT_TOKEN, ...) must come from extraEnvFrom.
+{{- end }}

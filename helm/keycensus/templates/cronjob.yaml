@@ -1,0 +1,118 @@
+{{- if .Values.mode.scan.enabled }}
+{{- $s := .Values.mode.scan }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "keycensus.fullname" . }}-scan
+  labels:
+    {{- include "keycensus.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $s.schedule | quote }}
+  concurrencyPolicy: {{ $s.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ $s.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $s.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            {{- include "keycensus.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: scan
+            {{- with .Values.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        spec:
+          restartPolicy: Never
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "keycensus.serviceAccountName" . }}
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: keycensus
+              image: {{ include "keycensus.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  set -u
+                  OUT=/out/$(date -u +%Y-%m-%dT%H%M%SZ)
+                  ARGS=""
+                  {{- if $s.baseline.enabled }}
+                  if [ -f /out/latest/inventory.json ]; then ARGS="$ARGS --baseline /out/latest/inventory.json"; fi
+                  {{- end }}
+                  {{- if $s.failOn }}
+                  ARGS="$ARGS --fail-on {{ $s.failOn }}"
+                  {{- end }}
+                  {{- if $s.failOnNew }}
+                  ARGS="$ARGS --fail-on-new {{ $s.failOnNew }}"
+                  {{- end }}
+                  RC=0
+                  keycensus scan -c /config/keycensus.yml -o "$OUT" $ARGS || RC=$?
+                  if [ ! -f "$OUT/cbom.json" ]; then exit $RC; fi   # scan itself crashed: nothing to keep or upload
+                  {{- if $s.baseline.enabled }}
+                  rm -rf /out/latest && cp -r "$OUT" /out/latest
+                  {{- end }}
+                  {{- if $s.dependencyTrack.enabled }}
+                  keycensus upload dtrack --url {{ $s.dependencyTrack.url | quote }} --cbom "$OUT/cbom.json" \
+                    --project {{ $s.dependencyTrack.project | quote }} \
+                    {{- if $s.dependencyTrack.parent }}
+                    --parent {{ $s.dependencyTrack.parent | quote }} \
+                    {{- end }}
+                    {{- if $s.dependencyTrack.versionFromDate }}
+                    --version "$(date -u +%Y-%m-%d)" --latest
+                    {{- else }}
+                    --version {{ $s.dependencyTrack.version | default "latest" | quote }} --latest
+                    {{- end }}
+                  {{- end }}
+                  exit $RC
+              env:
+                {{- include "keycensus.env" . | nindent 16 }}
+              {{- $envFrom := include "keycensus.envFrom" . }}
+              {{- if or $envFrom $s.dependencyTrack.enabled }}
+              envFrom:
+                {{- $envFrom | nindent 16 }}
+                {{- if and $s.dependencyTrack.enabled $s.dependencyTrack.apiKeySecret }}
+                - secretRef:
+                    name: {{ $s.dependencyTrack.apiKeySecret }}
+                {{- end }}
+              {{- end }}
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              volumeMounts:
+                {{- include "keycensus.volumeMounts" . | nindent 16 }}
+          volumes:
+            {{- if and $s.baseline.enabled $s.baseline.persistence.enabled }}
+            - name: out
+              persistentVolumeClaim:
+                claimName: {{ $s.baseline.persistence.existingClaim | default (printf "%s-out" (include "keycensus.fullname" .)) }}
+            - name: config
+              configMap:
+                name: {{ include "keycensus.configMapName" . }}
+            - name: tmp
+              emptyDir: {}
+            {{- range .Values.extraVolumes }}
+            - {{ toYaml . | nindent 14 | trim }}
+            {{- end }}
+            {{- else }}
+            {{- include "keycensus.volumes" . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

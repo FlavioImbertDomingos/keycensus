@@ -1,0 +1,117 @@
+# keycensus Helm chart -- two ways to run it, pick one (or both):
+#
+#   mode.serve   a Deployment that rescans every `interval` and serves /metrics, /report.html, /cbom.json
+#   mode.scan    a CronJob that scans on a schedule, keeps a baseline, diffs against it, and can push the
+#                CBOM to Dependency-Track
+#
+# Secrets (PINs, tokens, API keys) are never in values: point `existingSecret` at a Secret whose keys are the
+# env var names your config references (HSM_PIN, VAULT_TOKEN, AZURE_TOKEN ...).
+
+image:
+  repository: ghcr.io/flavioimbertdomingos/keycensus
+  tag: ""                       # defaults to .Chart.appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# The sources YAML, rendered into a ConfigMap. Or set `existingConfigMap` (key: keycensus.yml).
+config:
+  policy: default
+  sources:
+    - name: example-certs
+      type: pem
+      paths: [/etc/ssl/certs]
+existingConfigMap: ""
+
+# Optional custom policy YAML (rendered as policy.yml next to the config, referenced as /config/policy.yml).
+policy: ""
+
+# Secret whose keys become environment variables (envFrom). Create it yourself:
+#   kubectl create secret generic keycensus-secrets --from-literal=VAULT_TOKEN=... --from-literal=HSM_PIN=...
+existingSecret: ""
+extraEnv: []                    # - { name: AWS_DEFAULT_REGION, value: us-east-1 }
+extraEnvFrom: []                # - secretRef: { name: other }
+extraVolumes: []                # e.g. the vendor PKCS#11 client library, a CA bundle
+extraVolumeMounts: []
+
+mode:
+  serve:
+    enabled: true
+    interval: 15m
+    perAssetMetrics: true
+    replicas: 1
+  scan:
+    enabled: false
+    schedule: "0 2 * * *"       # daily at 02:00
+    concurrencyPolicy: Forbid
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    failOn: ""                  # critical|high|medium|low -> job fails (alerts) when present
+    failOnNew: ""               # with baseline: job fails when NEW findings at/above this appear
+    baseline:
+      enabled: true             # keep inventory.json between runs and write diff.json / diff.md
+      persistence:
+        enabled: true
+        size: 1Gi
+        storageClass: ""
+        existingClaim: ""
+    dependencyTrack:
+      enabled: false
+      url: ""                   # https://dtrack.example.com
+      apiKeySecret: ""          # Secret name; key DTRACK_API_KEY (or set apiKeySecretKey)
+      apiKeySecretKey: DTRACK_API_KEY
+      project: keycensus
+      parent: ""
+      versionFromDate: true     # project version = scan date (YYYY-MM-DD); else `version`
+      version: ""
+
+service:
+  type: ClusterIP
+  port: 9742
+  annotations: {}
+
+serviceMonitor:                 # Prometheus Operator
+  enabled: false
+  interval: 60s
+  scrapeTimeout: 30s
+  labels: {}
+  metricRelabelings: []
+
+prometheusRule:                 # ship the bundled alert rules as a PrometheusRule
+  enabled: false
+  labels: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: keycensus.example.com
+      paths: [{ path: /, pathType: Prefix }]
+  tls: []
+
+serviceAccount:
+  create: true
+  annotations: {}               # e.g. eks.amazonaws.com/role-arn, iam.gke.io/gcp-service-account, azure.workload.identity/client-id
+  name: ""
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
