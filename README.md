@@ -39,8 +39,7 @@ March 2025). And **quantum computers** will eventually open a whole category of 
 (RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
 You can't replace what you haven't counted.
 
-<img width="1163" height="600" alt="image" src="https://github.com/user-attachments/assets/8bae022f-bb49-471f-bc20-67714e61300c" />
-
+<img width="1163" height="600" alt="image" src="https://github.com/user-attachments/assets/06c888e1-1821-45eb-9c9d-eb8f1dc9864f" />
 
 ---
 
