@@ -7,6 +7,8 @@ standards-based **CBOM** (CycloneDX 1.6), an HTML report a human can read, and P
 and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the
 **NIST IR 8547 post-quantum timeline**.
 
+<img width="791" height="795" alt="image" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
+
 [![CI](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml/badge.svg)](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CycloneDX 1.6](https://img.shields.io/badge/CBOM-CycloneDX%201.6-orange.svg)](docs/CBOM.md)
