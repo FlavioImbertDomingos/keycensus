@@ -39,16 +39,8 @@ March 2025). And **quantum computers** will eventually open a whole category of 
 (RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
 You can't replace what you haven't counted.
 
-```
-  HSM (PKCS#11) ─┐
-  HashiCorp Vault ┤                          ┌─► report.html    (humans)
-  AWS KMS ────────┤   ┌──────────────┐       ├─► cbom.json      (CycloneDX 1.6, auditors & tools)
-  Voltage export ─┼──►│  keycensus   │──────►├─► inventory.json / .csv
-  PEM folders ────┤   │ collect→grade│       └─► /metrics       (Prometheus → Grafana → alerts)
-  TLS endpoints ──┘   └──────────────┘
-                              ▲
-                     policy.yml (your cryptoperiods, severities, thresholds)
-```
+<img width="1163" height="600" alt="image" src="https://github.com/user-attachments/assets/8bae022f-bb49-471f-bc20-67714e61300c" />
+
 
 ---
 
