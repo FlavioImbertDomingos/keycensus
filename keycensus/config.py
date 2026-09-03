@@ -64,6 +64,8 @@ class Config:
     serve: dict[str, Any] = field(default_factory=dict)
     applications: list[dict[str, Any]] = field(default_factory=list)  # see keycensus.linking
     auto_match: bool = True
+    notifications: dict[str, Any] | None = None  # see keycensus.notify; None = no block, {} = defaults
+    change_urgency: dict[str, str] = field(default_factory=dict)  # see keycensus.changes
     base_dir: str | None = None  # directory of the config file; relative SBOM paths resolve against it
 
 
@@ -87,11 +89,29 @@ def load(path: str | Path) -> Config:
     if not isinstance(apps, list):
         raise ConfigError(f"{path}: 'applications' must be a list")
     linking = raw.get("linking") or {}
+    changes = raw.get("changes") or {}
+    if not isinstance(changes, dict):
+        raise ConfigError(f"{path}: 'changes' must be a mapping")
+    urgency = changes.get("urgency") or {}
+    if not isinstance(urgency, dict):
+        raise ConfigError(f"{path}: 'changes.urgency' must be a mapping of change kind -> page|digest|ignore")
+    from .changes import DEFAULT_URGENCY, URGENCIES  # noqa: PLC0415 - avoids a config <-> changes import cycle
+
+    for kind, level in urgency.items():
+        if level not in URGENCIES:
+            raise ConfigError(f"{path}: changes.urgency[{kind}] is {level!r}; expected one of {', '.join(URGENCIES)}")
+        if kind not in DEFAULT_URGENCY:
+            raise ConfigError(
+                f"{path}: changes.urgency[{kind}] is not a change kind keycensus emits. "
+                "Run `keycensus changes --kinds` for the list."
+            )
     return Config(
         sources=sources,
         policy=str(raw.get("policy", "default")),
         serve=raw.get("serve") or {},
         applications=apps,
         auto_match=bool(linking.get("auto_match", True)),
+        notifications=raw.get("notifications"),
+        change_urgency={str(k): str(v) for k, v in urgency.items()},
         base_dir=str(Path(path).resolve().parent),
     )

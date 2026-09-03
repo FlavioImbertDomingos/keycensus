@@ -95,3 +95,19 @@ automatically. In GitHub Actions:
   if: always()
   with: { name: keycensus-baseline, path: out/inventory.json, overwrite: true }
 ```
+
+## From a diff to an alert
+
+A diff is a report; an alert needs to know which changes are worth interrupting someone for. `keycensus
+changes` classifies every change into a **kind** with an **urgency** (`page` / `digest` / `ignore`),
+`serve` exports it as `keycensus_change_total{kind,urgency}`, and a webhook can post the page-worthy
+ones straight to Slack or Teams.
+
+```bash
+keycensus changes --kinds                              # the vocabulary and its default urgency
+keycensus changes before/inventory.json out/inventory.json
+keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-page   # exit 5
+```
+
+See **[ALERTING.md](ALERTING.md)** for the metric names, the shipped alert rules, the urgency table and
+how to re-map it for your estate.

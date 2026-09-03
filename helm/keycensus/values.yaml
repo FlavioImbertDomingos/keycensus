@@ -29,6 +29,10 @@ policy: ""
 
 # Secret whose keys become environment variables (envFrom). Create it yourself:
 #   kubectl create secret generic keycensus-secrets --from-literal=VAULT_TOKEN=... --from-literal=HSM_PIN=...
+#
+# Webhook alerting (docs/ALERTING.md) reads its URL from the environment, so it goes in the same
+# Secret -- a webhook URL is a credential, and keycensus refuses an inline `webhook_url:`:
+#   kubectl create secret generic keycensus-secrets --from-literal=KEYCENSUS_WEBHOOK_URL='https://hooks.slack.com/services/...'
 existingSecret: ""
 extraEnv: []                    # - { name: AWS_DEFAULT_REGION, value: us-east-1 }
 extraEnvFrom: []                # - secretRef: { name: other }

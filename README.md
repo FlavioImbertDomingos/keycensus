@@ -210,12 +210,14 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | `report.html` | Humans | Self-contained, printable, filterable |
 | `inventory.json` | Scripts | Everything, including raw source fields |
 | `inventory.csv` | Spreadsheets, GRC uploads | One row per asset with findings column |
-| `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class |
+| `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class, **and change counters** |
 | `diff.json` / `diff.md` | Change review, CI gates | With `--baseline previous/inventory.json`: assets added / removed / changed, findings new / resolved, sources broken |
+| `changes.json` | Alerting | Each change classified into a kind with an urgency: what should page, what waits for the weekly digest |
 | Applications (in all of the above) | Incident response, ownership | `applications:` + SBOMs → which app uses which key; CBOM gets `application` components with `dependsOn` → keys; `unlinked-asset` findings for orphans |
 
 ```bash
 keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-new high   # exit 3 on new high+ findings
+keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-page       # exit 5 if the estate got worse
 keycensus diff last/inventory.json out/inventory.json -f markdown                           # or text / json
 keycensus link -c keycensus.yml -i out/inventory.json --sbom sboms/payments-api.cdx.json -o out   # SBOM ↔ CBOM
 keycensus upload dtrack --url https://dtrack.corp --project hsm-estate --version 2026-09-02 --cbom out/cbom.json
@@ -241,11 +243,41 @@ has the walkthrough.
 
 ---
 
+## Alerting on change, not just on state
+
+A finding tells you the estate is bad. It cannot tell you the estate *got* bad an hour ago — and that
+is the alert someone actually needs. Every scan is diffed against the previous one and each change is
+classified into a **kind** with an **urgency**:
+
+```
+$ keycensus changes before/inventory.json out/inventory.json
+
+PAGE (4):
+  [asset-removed] luna/legacy-tde is gone and was active at the last scan
+      why: A key or certificate that existed in the last scan is gone. Either it was deleted, or the
+           source stopped reporting it -- both are worth knowing within minutes.
+  [key-became-exportable] luna/payments-kek can now be exported
+      why: Private material that could not leave the module now can. This is the attribute an
+           attacker changes before exfiltrating a key, and it is rarely changed on purpose.
+  [rotation-disabled] luna/payments-kek rotation DISABLED
+  [source-broken] source vault is failing: connection refused
+
+DIGEST (2):
+  [asset-added] aws/new-cmk appeared (AES-256)
+  [consumer-added] aws/payments-cmk: new consumer(s) role/analytics
+```
+
+`serve` exports it as `keycensus_change_total{kind,urgency,source}`, six alert rules ship in
+`prometheus/alerts/`, and a webhook posts the page-worthy ones to Slack or Teams for teams without
+Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config), and
+`keycensus changes --kinds` prints the whole vocabulary. Details: **[docs/ALERTING.md](docs/ALERTING.md)**.
+
 ## Documentation
 
 - [docs/COLLECTORS.md](docs/COLLECTORS.md) — every source type, its options, and the permissions it needs
 - [docs/LINKING.md](docs/LINKING.md) — SBOM ↔ CBOM linking: which application uses which key, blast radius, orphan keys
 - [docs/DIFF.md](docs/DIFF.md) — diff mode: what changed since the last scan, and how to gate CI on it
+- [docs/ALERTING.md](docs/ALERTING.md) — alerting on **change**: urgency, `keycensus_change_total`, the shipped rules, webhooks
 - [docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md) — live tests against real Azure / GCP accounts via OIDC
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
@@ -280,6 +312,7 @@ has the walkthrough.
 - [x] Helm chart *(0.2.0)*
 - [x] SBOM ↔ CBOM linking: which application uses which key *(0.3.0)*
 - [x] Live integration tests against Azure Key Vault and Google Cloud KMS (OIDC, no stored secrets) *(0.3.0 — harness and fixtures; runs once the maintainer's accounts are wired up)*
+- [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
 - [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
 - [ ] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking
 

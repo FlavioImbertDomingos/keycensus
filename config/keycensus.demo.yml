@@ -64,3 +64,30 @@ applications:
     uses:
       - {source: fake-aws, name: legacy-cmk}
       - {principal: "*batch*"}
+
+# ---------------------------------------------------------------------------
+#  Alerting on change (docs/ALERTING.md)
+#
+#  Every rescan is diffed against the previous one and each change is classified
+#  into a kind with an urgency: page / digest / ignore. `serve` exports
+#  keycensus_change_total{kind,urgency,source} and publishes /changes.json.
+#
+#  Uncomment to have the demo POST page-worthy changes to a webhook. The URL is
+#  read from the environment because a webhook URL is a credential -- keycensus
+#  refuses a `webhook_url:` key outright.
+#
+#    export KEYCENSUS_WEBHOOK_URL='https://hooks.slack.com/services/...'
+#
+# notifications:
+#   webhook_url_env: KEYCENSUS_WEBHOOK_URL
+#   format: slack            # generic | slack | teams
+#   on: page                 # page (default) | any | never
+#   include_digest: true
+
+# The shipped urgency table is an opinion; re-map any kind for your estate.
+# `keycensus changes --kinds` prints the whole vocabulary.
+#
+# changes:
+#   urgency:
+#     consumer-added: page          # a new principal on a payment key IS a page here
+#     certificate-replaced: ignore  # we rotate these hourly

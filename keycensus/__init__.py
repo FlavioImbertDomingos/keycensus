@@ -1,3 +1,3 @@
 """keycensus: a census of every cryptographic key, certificate and protocol you own."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
