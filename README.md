@@ -18,7 +18,7 @@ and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** a
 
 ---
 
-## The 10-year-old explanation
+## Non-technical explanation
 
 Imagine your school has hundreds of lockers, and every locker has a key. Some keys are in the
 office safe, some are with teachers, some are taped under desks. Some locks are the good new kind,
@@ -38,16 +38,7 @@ March 2025). And **quantum computers** will eventually open a whole category of 
 (RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
 You can't replace what you haven't counted.
 
-```
-  HSM (PKCS#11) ─┐
-  HashiCorp Vault ┤                          ┌─► report.html    (humans)
-  AWS KMS ────────┤   ┌──────────────┐       ├─► cbom.json      (CycloneDX 1.6, auditors & tools)
-  Voltage export ─┼──►│  keycensus   │──────►├─► inventory.json / .csv
-  PEM folders ────┤   │ collect→grade│       └─► /metrics       (Prometheus → Grafana → alerts)
-  TLS endpoints ──┘   └──────────────┘
-                              ▲
-                     policy.yml (your cryptoperiods, severities, thresholds)
-```
+<img width="1233" height="810" alt="image" src="https://github.com/user-attachments/assets/78b0d46a-6581-4f04-840c-21813b595f80" />
 
 ---
 
