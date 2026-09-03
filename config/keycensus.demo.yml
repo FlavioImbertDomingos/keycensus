@@ -59,8 +59,10 @@ applications:
     uses:
       - {source: softhsm, name: "signing-*"}
       - {source: fake-aws, tag: {app: auth}}
-  - name: batch-reporting              # no SBOM yet: still worth declaring, so its keys are not "unlinked"
-    owner: data-platform
+  # The third application ships an SPDX SBOM rather than CycloneDX, so the demo
+  # exercises both readers. Identity comes from the package the document
+  # DESCRIBES, not from the document name.
+  - sbom: /app/demo/sboms/batch-reporting.spdx.json
     uses:
       - {source: fake-aws, name: legacy-cmk}
       - {principal: "*batch*"}

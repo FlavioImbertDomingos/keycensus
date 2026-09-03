@@ -167,11 +167,159 @@ def test_azure_managed_hsm_marks_everything_hardware(monkeypatch):
         },
     )
     responses.add(responses.GET, f"{hsm}/keys/k1/rotationpolicy", status=404, json={})
+    # Managed HSM keeps its RBAC in its own data plane: same token, no ARM call.
+    responses.add(
+        responses.GET,
+        f"{hsm}/providers/Microsoft.Authorization/roleAssignments",
+        json={
+            "value": [
+                {
+                    "properties": {
+                        "roleDefinitionId": "/providers/.../21dbd100-6940-42c2-9190-5d6cb909625b",
+                        "principalId": "11111111-1111-1111-1111-111111111111",
+                        "principalType": "ServicePrincipal",
+                    }
+                },
+                {
+                    "properties": {
+                        "roleDefinitionId": "/providers/.../21dbd100-6940-42c2-9190-5d6cb909625b",
+                        "principalId": "11111111-1111-1111-1111-111111111111",
+                        "principalType": "ServicePrincipal",
+                    }
+                },  # duplicate assignment
+            ]
+        },  # fmt: skip
+    )
     res = AzureKeyVaultCollector(
         source("mh", "azure-keyvault", vault_url=hsm, auth="token", token_env="AZT", include_certificates=False)
     ).run()
     assert res.error is None and res.assets[0].hardware_backed and res.assets[0].fips_validated
     assert "Managed HSM" in res.assets[0].location
+    used = res.assets[0].used_by
+    assert len(used) == 1, "the same principal assigned twice is one consumer"
+    assert used[0]["type"] == "service"
+    assert used[0]["id"] == "11111111-1111-1111-1111-111111111111"
+    assert used[0]["via"].startswith("local-rbac:")
+
+
+# --------------------------------------------------------------- Azure RBAC consumers
+SUB = "00000000-0000-0000-0000-000000000000"
+RID = f"/subscriptions/{SUB}/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/pay-kv"
+ARM = "https://management.azure.com"
+
+
+def _kv_keys_only(monkeypatch):
+    """The minimum data-plane mocking for a vault with one key."""
+    monkeypatch.setenv("AZT", "t")
+    monkeypatch.setenv("ARMT", "t2")
+    responses.add(
+        responses.GET, f"{KV}/keys", json={"value": [{"kid": f"{KV}/keys/k1", "attributes": {"enabled": True}}]}
+    )
+    responses.add(
+        responses.GET,
+        f"{KV}/keys/k1",
+        json={
+            "key": {"kid": f"{KV}/keys/k1/1", "kty": "RSA", "n": _b64url(b"\x01" * 256), "e": _b64url(b"\x01\x00\x01")},
+            "attributes": {"enabled": True},
+        },  # fmt: skip
+    )
+    responses.add(responses.GET, f"{KV}/keys/k1/rotationpolicy", status=404, json={})
+
+
+def _azure_source(**kw):
+    base = dict(vault_url=KV, auth="token", token_env="AZT", arm_token_env="ARMT",
+                include_certificates=False, subscription_id=SUB)  # fmt: skip
+    base.update(kw)
+    return source("kv", "azure-keyvault", **base)
+
+
+@responses.activate
+def test_azure_rbac_role_assignments_become_consumers(monkeypatch):
+    _kv_keys_only(monkeypatch)
+    responses.add(
+        responses.GET,
+        f"{ARM}/subscriptions/{SUB}/resources",
+        json={"value": [{"id": RID, "name": "pay-kv"}]},
+    )
+    responses.add(responses.GET, f"{ARM}{RID}", json={"properties": {"enableRbacAuthorization": True}})
+    responses.add(
+        responses.GET,
+        f"{ARM}{RID}/providers/Microsoft.Authorization/roleAssignments",
+        json={
+            "value": [
+                {
+                    "properties": {
+                        "roleDefinitionId": "/rd/crypto-user",
+                        "principalId": "aaa",
+                        "principalType": "ServicePrincipal",
+                    }
+                },
+                {"properties": {"roleDefinitionId": "/rd/reader", "principalId": "bbb", "principalType": "User"}},
+            ]
+        },  # fmt: skip
+    )
+    responses.add(responses.GET, f"{ARM}/rd/crypto-user", json={"properties": {"roleName": "Key Vault Crypto User"}})
+    responses.add(responses.GET, f"{ARM}/rd/reader", json={"properties": {"roleName": "Key Vault Reader"}})
+
+    res = AzureKeyVaultCollector(_azure_source()).run()
+    assert res.error is None
+    used = res.assets[0].used_by
+    ids = {u["id"] for u in used}
+    assert ids == {"aaa"}, "Key Vault Reader can list but not use -- it is not a consumer"
+    assert used[0]["via"] == "rbac:Key Vault Crypto User"
+    assert used[0]["type"] == "service"
+
+
+@responses.activate
+def test_azure_access_policy_vaults_are_read_too(monkeypatch):
+    """The pre-RBAC model, still the default on plenty of estates."""
+    _kv_keys_only(monkeypatch)
+    responses.add(responses.GET, f"{ARM}/subscriptions/{SUB}/resources", json={"value": [{"id": RID}]})
+    responses.add(
+        responses.GET,
+        f"{ARM}{RID}",
+        json={
+            "properties": {
+                "enableRbacAuthorization": False,
+                "accessPolicies": [
+                    {"objectId": "app-1", "permissions": {"keys": ["get", "list", "unwrapKey"]}},
+                    {"objectId": "audit-1", "permissions": {"keys": ["get", "list"]}},
+                ],
+            }
+        },  # fmt: skip
+    )
+    res = AzureKeyVaultCollector(_azure_source()).run()
+    used = res.assets[0].used_by
+    assert [u["id"] for u in used] == ["app-1"], "get+list is inventory access, not use"
+    assert used[0]["via"] == "access-policy:unwrapkey"
+
+
+@responses.activate
+def test_azure_rbac_forbidden_is_not_a_scan_failure(monkeypatch):
+    """No consumer information is worse than no inventory."""
+    _kv_keys_only(monkeypatch)
+    responses.add(responses.GET, f"{ARM}/subscriptions/{SUB}/resources", json={"value": [{"id": RID}]})
+    responses.add(responses.GET, f"{ARM}{RID}", status=403, json={"error": {"code": "AuthorizationFailed"}})
+    res = AzureKeyVaultCollector(_azure_source()).run()
+    assert res.error is None
+    assert res.assets and res.assets[0].used_by == []
+
+
+@responses.activate
+def test_azure_without_a_subscription_makes_no_arm_call(monkeypatch):
+    """include_rbac on but nothing to locate the vault with: say so, scan anyway."""
+    _kv_keys_only(monkeypatch)
+    res = AzureKeyVaultCollector(_azure_source(subscription_id=None)).run()
+    assert res.error is None and res.assets[0].used_by == []
+    assert not any("management.azure.com" in c.request.url for c in responses.calls)
+
+
+@responses.activate
+def test_azure_rbac_can_be_turned_off(monkeypatch):
+    _kv_keys_only(monkeypatch)
+    res = AzureKeyVaultCollector(_azure_source(include_rbac=False)).run()
+    assert res.assets[0].used_by == []
+    assert not any("management.azure.com" in c.request.url for c in responses.calls)
 
 
 def test_azure_missing_token_is_a_source_error():

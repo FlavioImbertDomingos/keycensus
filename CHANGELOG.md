@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.5.0 — 2026-09-03
+
+**Who uses this key — the last two gaps.** AWS grants, GCP IAM bindings and CipherTrust owners have
+fed `used_by` since 0.3.0; Azure was the one cloud that could not answer, and SPDX users could not
+declare an application at all.
+
+**Azure RBAC consumers** (`include_rbac`, on by default)
+
+- Azure authorizes three different ways and the collector reads whichever the vault uses: ARM role
+  assignments at the vault scope for RBAC vaults, `properties.accessPolicies` for the older model,
+  and the HSM's own data-plane local RBAC for Managed HSM — which needs no ARM call and no extra
+  permission at all.
+- Roles that only *list* (Key Vault Reader, Managed HSM Crypto Auditor) are deliberately not
+  consumers: they can see that a key exists, not use it. Same for `get`+`list` access policies.
+- The management plane is a different endpoint and a different token audience, so `auth: token` now
+  takes `arm_token_env` alongside `token_env`. With `auth: default` the credential chain handles it.
+- `used_by` is filled at the **vault** scope, because that is where Azure authorizes. AWS and GCP are
+  per key; pretending Azure is too would invent precision the platform does not have.
+- Optional Microsoft Graph name resolution (`resolve_principal_names`), off by default because
+  `Directory.Read.All` is a much larger permission than reading an inventory. Without it, principals
+  are reported as object ids.
+- A 403 anywhere in this path is logged and tolerated — no consumer information is worse than no
+  inventory.
+
+**SPDX SBOMs for linking**
+
+- `applications: - sbom: foo.spdx.json` now works for SPDX 2.2 and 2.3 JSON alongside CycloneDX.
+  Identity comes from the package the document **DESCRIBES** — not the document name (usually the
+  file) and not the first package (usually a dependency). Falls back to the 2.2 `documentDescribes`
+  shorthand, then to the single package when there is exactly one.
+- purl from the `externalRefs` entry with `referenceType: purl`; owner from `supplier`, else
+  `originator`, unwrapping `"Organization: ACME (a@b)"` to `ACME` and ignoring `NOASSERTION`.
+- `Application.sbom_format` records which reader ran. A test pins that both formats link an
+  application to exactly the same assets — the format must never change the answer.
+- Unreadable SBOMs now say what to do: XML and SPDX tag-value point at `syft convert`.
+- The demo's third application ships an SPDX SBOM, so `make demo` exercises both readers.
+
 ## 0.4.0 — 2026-09-03
 
 **Alerting on change, not just on state.** The diff existed as a CLI command and an exit code and

@@ -24,6 +24,9 @@ else
   ME=$(az ad signed-in-user show --query id -o tsv)
   SCOPE=$(az keyvault show -n "$VAULT" --query id -o tsv)
   az role assignment create --assignee "$ME" --role "Key Vault Administrator" --scope "$SCOPE" -o none
+  # Management plane: reading role assignments is what include_rbac needs, and it is
+  # a different permission from anything on the data plane.
+  az role assignment create --assignee "$ME" --role "Reader" --scope "$SCOPE" -o none
   echo "waiting for RBAC propagation..."; sleep 30
 fi
 URL="https://$VAULT.vault.azure.net"

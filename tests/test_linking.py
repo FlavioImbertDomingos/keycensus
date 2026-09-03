@@ -136,11 +136,110 @@ def test_load_applications_from_sbom_and_validation(tmp_path):
         load_applications([{"owner": "x"}])
     with pytest.raises(LinkingError, match="duplicate"):
         load_applications([{"name": "x"}, {"name": "x"}])
-    (tmp_path / "spdx.json").write_text('{"spdxVersion": "SPDX-2.3"}')
-    with pytest.raises(LinkingError, match="not a CycloneDX"):
-        load_applications([{"sbom": str(tmp_path / "spdx.json")}])
+    (tmp_path / "neither.json").write_text('{"hello": "world"}')
+    with pytest.raises(LinkingError, match="not recognisable"):
+        load_applications([{"sbom": str(tmp_path / "neither.json")}])
+    (tmp_path / "notjson.json").write_text("spdxVersion: SPDX-2.3\n")
+    with pytest.raises(LinkingError, match="tag-value"):
+        load_applications([{"sbom": str(tmp_path / "notjson.json")}])
     with pytest.raises(LinkingError, match="cannot read"):
         load_applications([{"sbom": str(tmp_path / "missing.json")}])
+
+
+# --------------------------------------------------------------------- SPDX
+SPDX = {
+    "spdxVersion": "SPDX-2.3",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "payments-api-sbom",  # the FILE's name, not the app's
+    "documentNamespace": "https://acme.example/spdx/payments-api/4f2a",
+    "packages": [
+        {
+            "SPDXID": "SPDXRef-Package-payments-api",
+            "name": "payments-api",
+            "versionInfo": "2.4.1",
+            "supplier": "Organization: Payments Platform (payments@acme.example)",
+            "description": "Card authorization API",
+            "externalRefs": [
+                {"referenceCategory": "SECURITY", "referenceType": "cpe23Type", "referenceLocator": "cpe:2.3:a:*"},
+                {
+                    "referenceCategory": "PACKAGE-MANAGER",
+                    "referenceType": "purl",
+                    "referenceLocator": "pkg:golang/acme/payments-api@2.4.1",
+                },
+            ],  # fmt: skip
+        },
+        {"SPDXID": "SPDXRef-Package-libcrypto", "name": "libcrypto", "versionInfo": "3.0.13"},
+    ],
+    "relationships": [
+        {
+            "spdxElementId": "SPDXRef-DOCUMENT",
+            "relationshipType": "DESCRIBES",
+            "relatedSpdxElement": "SPDXRef-Package-payments-api",
+        },
+        {
+            "spdxElementId": "SPDXRef-Package-payments-api",
+            "relationshipType": "DEPENDS_ON",
+            "relatedSpdxElement": "SPDXRef-Package-libcrypto",
+        },
+    ],  # fmt: skip
+}
+
+
+def test_spdx_sbom_describes_the_application(tmp_path):
+    """The app is the package the document DESCRIBES -- not the document, and not
+    the first package, which is often a dependency."""
+    (tmp_path / "pay.spdx.json").write_text(json.dumps(SPDX))
+    app = load_applications([{"sbom": "pay.spdx.json", "uses": [{"name": "pan-*"}]}], base_dir=tmp_path)[0]
+    assert app.name == "payments-api"  # not "payments-api-sbom"
+    assert app.version == "2.4.1"
+    assert app.purl == "pkg:golang/acme/payments-api@2.4.1"
+    assert app.owner == "Payments Platform"  # "Organization: X (email)" unwrapped
+    assert app.description == "Card authorization API"
+    assert app.bom_ref == "SPDXRef-Package-payments-api"
+    assert app.sbom_format == "spdx"
+    assert app.sbom_components == 2
+    assert app.sbom_serial == "https://acme.example/spdx/payments-api/4f2a"
+
+
+def test_spdx_2_2_documentdescribes_shorthand(tmp_path):
+    doc = {k: v for k, v in SPDX.items() if k != "relationships"}
+    doc["spdxVersion"] = "SPDX-2.2"
+    doc["documentDescribes"] = ["SPDXRef-Package-payments-api"]
+    (tmp_path / "s.spdx.json").write_text(json.dumps(doc))
+    assert load_applications([{"sbom": "s.spdx.json"}], base_dir=tmp_path)[0].name == "payments-api"
+
+
+def test_spdx_single_package_needs_no_describes(tmp_path):
+    doc = {"spdxVersion": "SPDX-2.3", "SPDXID": "SPDXRef-DOCUMENT", "name": "x",
+           "packages": [{"SPDXID": "SPDXRef-a", "name": "auth-service", "versionInfo": "1.0"}]}  # fmt: skip
+    (tmp_path / "one.spdx.json").write_text(json.dumps(doc))
+    app = load_applications([{"sbom": "one.spdx.json"}], base_dir=tmp_path)[0]
+    assert app.name == "auth-service" and app.version == "1.0"
+
+
+def test_spdx_noassertion_supplier_is_not_an_owner(tmp_path):
+    doc = json.loads(json.dumps(SPDX))
+    doc["packages"][0]["supplier"] = "NOASSERTION"
+    doc["packages"][0]["originator"] = "Person: A. Dev (a@acme.example)"
+    (tmp_path / "n.spdx.json").write_text(json.dumps(doc))
+    assert load_applications([{"sbom": "n.spdx.json"}], base_dir=tmp_path)[0].owner == "A. Dev"
+
+
+def test_explicit_config_still_beats_the_spdx_document(tmp_path):
+    (tmp_path / "pay.spdx.json").write_text(json.dumps(SPDX))
+    app = load_applications([{"sbom": "pay.spdx.json", "name": "payments", "owner": "me"}], base_dir=tmp_path)[0]
+    assert app.name == "payments" and app.owner == "me" and app.version == "2.4.1"
+
+
+def test_spdx_and_cyclonedx_link_identically(tmp_path, inv):
+    """The whole point: the SBOM format must not change which keys an app is linked to."""
+    (tmp_path / "pay.spdx.json").write_text(json.dumps(SPDX))
+    spdx_app = load_applications([{"sbom": "pay.spdx.json", "uses": [{"name": "pan-*"}]}], base_dir=tmp_path)
+    cdx_app = [Application(name="payments-api", uses=[{"name": "pan-*"}])]
+    link(inv, spdx_app)
+    from_spdx = sorted(spdx_app[0].asset_ids)
+    link(inv, cdx_app)
+    assert from_spdx == sorted(cdx_app[0].asset_ids)
 
 
 # --------------------------------------------------------------------- linking

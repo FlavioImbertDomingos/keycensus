@@ -10,6 +10,12 @@
       include_disabled: true
       api_version: "7.5"
 
+      # Who can use these keys -> asset.used_by (docs/COLLECTORS.md#azure-rbac-consumers)
+      include_rbac: true
+      subscription_id: 00000000-0000-0000-0000-000000000000   # or $AZURE_SUBSCRIPTION_ID
+      # resource_id: /subscriptions/.../resourceGroups/rg/providers/Microsoft.KeyVault/vaults/payments-kv
+      resolve_principal_names: false   # needs Microsoft Graph Directory.Read.All; off by default
+
 Talks to the data-plane REST API directly with `requests` (no SDK needed at runtime);
 `pip install 'keycensus[azure]'` adds `azure-identity` for `auth: default` (managed
 identity, workload identity, `az login`, service principal env vars -- the usual chain).
@@ -27,6 +33,26 @@ What maps to what:
 * the rotation policy (`lifetimeActions` with a `Rotate` action) -> `rotation_enabled`.
 * certificates: the public `cer` is parsed like any other certificate; the backing key is
   also listed as a key, so both appear.
+
+**Consumers (`include_rbac`).** Azure has three separate authorization models for this, and the
+collector reads whichever one the vault actually uses:
+
+* **RBAC vaults** (`enableRbacAuthorization: true`) -- ARM role assignments at the vault scope.
+  Needs `Microsoft.Authorization/roleAssignments/read` and `Microsoft.KeyVault/vaults/read`
+  (the built-in *Reader* role covers both) on the **management** plane, which is a different
+  endpoint and a different token audience from everything else in this collector.
+* **Access-policy vaults** (the older model) -- `properties.accessPolicies` on the vault resource,
+  read from the same ARM call.
+* **Managed HSM** -- local RBAC, served by the HSM's own data plane, so no ARM and no extra
+  permission beyond what listing keys already needs.
+
+A 403 on any of it is tolerated: no consumer information is worse than no inventory.
+
+Principals come back as object ids (GUIDs), because ARM does not resolve names. Set
+`resolve_principal_names: true` to look them up in Microsoft Graph -- that needs
+`Directory.Read.All`, which is a large permission, so it is off by default and the GUIDs are
+reported as-is. GUIDs still link fine through an explicit `principal:` selector in
+`applications:`; automatic name matching needs the names.
 """
 
 from __future__ import annotations
@@ -84,13 +110,37 @@ class AzureKeyVaultCollector(Collector):
         self.session = requests.Session()
         self.session.headers["Accept"] = "application/json"
 
+        # Consumers. The management plane is a different endpoint, a different
+        # token audience and a different set of permissions from the data plane,
+        # so it gets its own everything.
+        self.include_rbac = bool(self.opt.get("include_rbac", True))
+        self.arm_endpoint = str(self.opt.get("arm_endpoint", "https://management.azure.com")).rstrip("/")
+        self.arm_api_version = str(self.opt.get("arm_api_version", "2023-07-01"))
+        self.rbac_api_version = str(self.opt.get("rbac_api_version", "2022-04-01"))
+        self.graph_endpoint = str(self.opt.get("graph_endpoint", "https://graph.microsoft.com")).rstrip("/")
+        self.resolve_names = bool(self.opt.get("resolve_principal_names", False))
+        self.vault_name = host.split(".", 1)[0]
+        self._role_names: dict[str, str] = {}  # roleDefinitionId -> display name, cached per run
+        self._principals: dict[str, str] = {}  # objectId -> display name
+
     # ------------------------------------------------------------ auth
-    def _token(self) -> str:
+    def _token(self, audience: str | None = None) -> str:
+        """Bearer token for one audience. `auth: token` supplies the data-plane one
+        directly; a management-plane call then needs `arm_token_env` as well, because
+        one token is never valid for two audiences."""
         if str(self.opt.get("auth", "default")) == "token":
+            if audience == "arm":
+                return self.cfg.secret("arm_token", required=True)
+            if audience == "graph":
+                return self.cfg.secret("graph_token", required=True)
             return self.cfg.secret("token", required=True)
         from azure.identity import DefaultAzureCredential  # noqa: PLC0415 - optional dependency
 
-        scope = "https://managedhsm.azure.net/.default" if self.managed_hsm else "https://vault.azure.net/.default"
+        scope = {
+            "arm": f"{self.arm_endpoint}/.default",
+            "graph": f"{self.graph_endpoint}/.default",
+        }.get(audience or "", "https://managedhsm.azure.net/.default" if self.managed_hsm
+              else "https://vault.azure.net/.default")  # fmt: skip
         cred_kwargs = {}
         if self.opt.get("authority"):
             cred_kwargs["authority"] = self.opt["authority"]
@@ -116,6 +166,198 @@ class AzureKeyVaultCollector(Collector):
             nxt = page.get("nextLink")
         return out
 
+    # ------------------------------------------------------------ consumers
+    # Roles that let the holder USE a key, as opposed to seeing that it exists.
+    # Matched on the role definition's display name, because the built-in role
+    # GUIDs are stable but unreadable and custom roles have neither.
+    _USE_ROLES = (
+        "Key Vault Crypto User",
+        "Key Vault Crypto Officer",
+        "Key Vault Crypto Service Encryption User",
+        "Key Vault Crypto Service Release User",
+        "Key Vault Certificates Officer",
+        "Key Vault Certificate User",
+        "Key Vault Secrets User",
+        "Key Vault Secrets Officer",
+        "Key Vault Administrator",
+        "Managed HSM Crypto User",
+        "Managed HSM Crypto Officer",
+        "Managed HSM Administrator",
+        "Owner",
+        "Contributor",
+    )
+    # Key Vault Reader / Managed HSM Crypto Auditor can list but not use, so they
+    # are consumers of the inventory, not of the keys. Left out on purpose.
+
+    _PRINCIPAL_KINDS = {
+        "ServicePrincipal": "service",
+        "User": "user",
+        "Group": "group",
+        "ForeignGroup": "group",
+        "Device": "device",
+    }
+
+    def _arm_get(self, url: str, params: dict | None = None) -> dict:
+        r = self.session.get(
+            url,
+            params=params,
+            timeout=self.timeout,
+            headers={"Authorization": f"Bearer {self._token('arm')}"},
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"GET {url} -> {r.status_code}: {r.text[:200]}")
+        return r.json()
+
+    def _resource_id(self) -> str | None:
+        """The vault's ARM id. Given explicitly, or found by name in a subscription."""
+        rid = self.opt.get("resource_id")
+        if rid:
+            return str(rid)
+        sub = self.opt.get("subscription_id") or self.cfg.secret("subscription_id", required=False)
+        if not sub:
+            log.info(
+                "[%s] include_rbac is on but neither resource_id nor subscription_id is set, and the vault URL "
+                "does not carry either -- skipping consumers. Set subscription_id (or $AZURE_SUBSCRIPTION_ID).",
+                self.name,
+            )
+            return None
+        url = f"{self.arm_endpoint}/subscriptions/{sub}/resources"
+        page = self._arm_get(url, {
+            "api-version": "2021-04-01",
+            "$filter": f"resourceType eq 'Microsoft.KeyVault/vaults' and name eq '{self.vault_name}'",
+        })  # fmt: skip
+        for item in page.get("value") or []:
+            return str(item.get("id"))
+        log.info("[%s] vault %s not found in subscription %s", self.name, self.vault_name, sub)
+        return None
+
+    def _role_name(self, role_definition_id: str) -> str:
+        if role_definition_id not in self._role_names:
+            try:
+                doc = self._arm_get(f"{self.arm_endpoint}{role_definition_id}", {"api-version": self.rbac_api_version})
+                self._role_names[role_definition_id] = str(
+                    (doc.get("properties") or {}).get("roleName") or role_definition_id.rsplit("/", 1)[-1]
+                )
+            except RuntimeError as exc:
+                log.debug("[%s] role definition %s: %s", self.name, role_definition_id, exc)
+                self._role_names[role_definition_id] = role_definition_id.rsplit("/", 1)[-1]
+        return self._role_names[role_definition_id]
+
+    def _principal_name(self, object_id: str) -> str | None:
+        """Microsoft Graph lookup. Off unless resolve_principal_names is set, because
+        Directory.Read.All is a much larger permission than reading an inventory."""
+        if not self.resolve_names or not object_id:
+            return None
+        if object_id in self._principals:
+            return self._principals[object_id]
+        try:
+            r = self.session.get(
+                f"{self.graph_endpoint}/v1.0/directoryObjects/{object_id}",
+                timeout=self.timeout,
+                headers={"Authorization": f"Bearer {self._token('graph')}"},
+            )
+            name = r.json().get("displayName") if r.status_code < 400 else None
+        except Exception as exc:  # noqa: BLE001 - a name is a nicety, never a failure
+            log.debug("[%s] graph lookup %s: %s", self.name, object_id, exc)
+            name = None
+        self._principals[object_id] = name
+        return name
+
+    def _rbac_consumers(self) -> list[dict]:
+        """ARM role assignments at the vault scope, plus legacy access policies."""
+        rid = self._resource_id()
+        if not rid:
+            return []
+        out: list[dict] = []
+        try:
+            vault = self._arm_get(f"{self.arm_endpoint}{rid}", {"api-version": self.arm_api_version})
+        except RuntimeError as exc:
+            log.info("[%s] cannot read the vault resource (%s); no consumers reported", self.name, exc)
+            return []
+
+        props = vault.get("properties") or {}
+        if props.get("enableRbacAuthorization"):
+            try:
+                page = self._arm_get(
+                    f"{self.arm_endpoint}{rid}/providers/Microsoft.Authorization/roleAssignments",
+                    {"api-version": self.rbac_api_version, "$filter": "atScope()"},
+                )
+            except RuntimeError as exc:
+                log.info("[%s] role assignments unreadable (%s); no consumers reported", self.name, exc)
+                return []
+            out.extend(self._from_role_assignments(page.get("value") or []))
+        else:
+            out.extend(self._from_access_policies(props.get("accessPolicies") or []))
+        return out
+
+    def _from_role_assignments(self, assignments: list[dict]) -> list[dict]:
+        out, seen = [], set()
+        for a in assignments:
+            p = a.get("properties") or {}
+            role = self._role_name(str(p.get("roleDefinitionId", "")))
+            if not any(r.lower() in role.lower() for r in self._USE_ROLES):
+                continue
+            oid = str(p.get("principalId", ""))
+            if not oid or (oid, role) in seen:
+                continue
+            seen.add((oid, role))
+            entry = {
+                "type": self._PRINCIPAL_KINDS.get(str(p.get("principalType", "")), "principal"),
+                "id": self._principal_name(oid) or oid,
+                "via": f"rbac:{role}",
+            }
+            if entry["id"] != oid:
+                entry["object_id"] = oid  # keep the GUID when a name was resolved
+            out.append(entry)
+        return out
+
+    def _from_access_policies(self, policies: list[dict]) -> list[dict]:
+        """The pre-RBAC model: permissions are attached to the vault, not to a role."""
+        out, seen = [], set()
+        for pol in policies:
+            perms = pol.get("permissions") or {}
+            keys = [str(x).lower() for x in (perms.get("keys") or [])]
+            certs = [str(x).lower() for x in (perms.get("certificates") or [])]
+            # "list" and "get" are inventory rights; anything else is use.
+            using = sorted(set(keys + certs) - {"list", "get", "getrotationpolicy", "listissuers", "getissuers"})
+            if not using:
+                continue
+            oid = str(pol.get("objectId", ""))
+            if not oid or oid in seen:
+                continue
+            seen.add(oid)
+            entry = {
+                "type": "principal",
+                "id": self._principal_name(oid) or oid,
+                "via": "access-policy:" + ",".join(using[:6]),
+            }
+            if entry["id"] != oid:
+                entry["object_id"] = oid
+            out.append(entry)
+        return out
+
+    def _managed_hsm_consumers(self) -> list[dict]:
+        """Managed HSM keeps its RBAC in its own data plane -- same token, no ARM."""
+        try:
+            page = self._get("providers/Microsoft.Authorization/roleAssignments", {"$filter": "atScope()"})
+        except RuntimeError as exc:
+            log.info("[%s] local RBAC unreadable (%s); no consumers reported", self.name, exc)
+            return []
+        out, seen = [], set()
+        for a in page.get("value") or []:
+            p = a.get("properties") or {}
+            role = str(p.get("roleDefinitionId", "")).rsplit("/", 1)[-1]
+            oid = str(p.get("principalId", ""))
+            if not oid or oid in seen:
+                continue
+            seen.add(oid)
+            out.append({
+                "type": self._PRINCIPAL_KINDS.get(str(p.get("principalType", "")), "principal"),
+                "id": self._principal_name(oid) or oid,
+                "via": f"local-rbac:{role}",
+            })  # fmt: skip
+        return out
+
     # ------------------------------------------------------------ collect
     def collect(self) -> list[CryptoAsset]:
         self.session.headers["Authorization"] = f"Bearer {self._token()}"
@@ -135,6 +377,18 @@ class AzureKeyVaultCollector(Collector):
                 asset = self._cert_asset(cert)
                 if asset:
                     assets.append(asset)
+
+        # Consumers are a property of the vault, not of one key: Azure authorizes
+        # at the vault scope (role assignments and access policies both), so every
+        # asset in this vault carries the same list. Where AWS grants and GCP IAM
+        # bindings are per key, this is not, and pretending otherwise would invent
+        # precision the platform does not have.
+        if self.include_rbac and assets:
+            consumers = self._managed_hsm_consumers() if self.managed_hsm else self._rbac_consumers()
+            if consumers:
+                log.info("[%s] %d consumer(s) at the vault scope", self.name, len(consumers))
+                for a in assets:
+                    a.used_by = list(consumers)
         return assets
 
     # ------------------------------------------------------------ mapping

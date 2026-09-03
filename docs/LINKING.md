@@ -26,6 +26,7 @@ Each needs one extra read permission (`kms:ListGrants` + `kms:GetKeyPolicy`, `ge
 applications:
   - sbom: sboms/payments-api.cdx.json     # CycloneDX JSON; name/version/purl/bom-ref from metadata.component
     owner: payments-team                  # else metadata.component.supplier.name
+  - sbom: sboms/batch-reporting.spdx.json # SPDX 2.2/2.3 JSON works too; identity from the DESCRIBES package
     uses:                                 # selectors: keys AND-ed inside one entry, entries OR-ed
       - {source: luna-payments, name: "pan-*"}
       - {source: aws-prod, tag: {app: payments}}
@@ -75,12 +76,33 @@ keycensus link -c keycensus.yml -i out/inventory.json --sbom sboms/new-service.c
 
 `link` is for the common case where SBOMs change every build and HSM scans happen nightly.
 
+## SBOM formats
+
+Both major formats are read, and the format never changes which keys an application links to — only
+where the identity comes from.
+
+| | CycloneDX JSON | SPDX 2.2 / 2.3 JSON |
+|---|---|---|
+| Application identity | `metadata.component` | the package the document **DESCRIBES** |
+| name / version | `name`, `version` | `name`, `versionInfo` |
+| purl | `purl` | `externalRefs` entry with `referenceType: purl` |
+| owner | `supplier.name` | `supplier`, else `originator` — `"Organization: ACME (a@b)"` is unwrapped to `ACME` |
+| ref | `bom-ref` | `SPDXID` |
+| serial | `serialNumber` | `documentNamespace` |
+
+The DESCRIBES relationship matters: an SPDX document's `name` is usually the *file*
+(`payments-api-sbom`), and its first package is often a dependency. keycensus reads
+`relationships` for `DESCRIBES`, falls back to the SPDX 2.2 `documentDescribes` shorthand, then to
+the single package when a document has exactly one — and only then to the document name.
+
+Anything you set explicitly in `applications:` still wins over the document, in both formats.
+
 ## Limits, honestly
 
-* Only CycloneDX **JSON** SBOMs are read (SPDX and XML are not, yet). Only `metadata.component` is
-  used; components inside the SBOM are counted, not matched.
+* CycloneDX **JSON** and SPDX 2.2/2.3 **JSON** are read; XML and SPDX tag-value are not (convert with
+  `syft convert` or `cyclonedx-cli`). Only the root component/package is used for identity; the rest
+  are counted, not matched.
 * Inferred consumers are *authorisations*, not observed use: a role that may use a key is listed
   whether or not it ever did. That is still what an auditor wants (least privilege), but it is not
   telemetry.
-* Azure RBAC consumers are not collected yet (needs the ARM API and a second token scope).
 * PKCS#11 has no notion of a consumer; declare those keys explicitly.

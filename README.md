@@ -2,9 +2,6 @@
 
 **A census of every cryptographic key, certificate and TLS endpoint you own — and what's wrong with them.**
 
-<img width="1259" height="691" alt="image" src="https://github.com/user-attachments/assets/72bfa9da-9c43-49be-8ff0-c0693996d0e7" />
-
-
 One command scans your HSMs (PKCS#11, CipherTrust Manager, KeySafe 5), Vault, AWS KMS, Azure Key Vault /
 Managed HSM, Google Cloud KMS, Voltage, certificate folders and TLS ports; produces a
 standards-based **CBOM** (CycloneDX 1.6), an HTML report a human can read, and Prometheus metrics;
@@ -13,6 +10,7 @@ and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** a
 
 <img width="791" height="795" alt="image" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
 
+<img width="914" height="506" alt="image" src="https://github.com/user-attachments/assets/6031385b-dbd2-4271-bee7-2a4d30f5f77b" />
 
 [![CI](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml/badge.svg)](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -20,7 +18,7 @@ and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** a
 
 ---
 
-## Non-techinical explanation
+## The 10-year-old explanation
 
 Imagine your school has hundreds of lockers, and every locker has a key. Some keys are in the
 office safe, some are with teachers, some are taped under desks. Some locks are the good new kind,
@@ -40,6 +38,16 @@ March 2025). And **quantum computers** will eventually open a whole category of 
 (RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
 You can't replace what you haven't counted.
 
+```
+  HSM (PKCS#11) ─┐
+  HashiCorp Vault ┤                          ┌─► report.html    (humans)
+  AWS KMS ────────┤   ┌──────────────┐       ├─► cbom.json      (CycloneDX 1.6, auditors & tools)
+  Voltage export ─┼──►│  keycensus   │──────►├─► inventory.json / .csv
+  PEM folders ────┤   │ collect→grade│       └─► /metrics       (Prometheus → Grafana → alerts)
+  TLS endpoints ──┘   └──────────────┘
+                              ▲
+                     policy.yml (your cryptoperiods, severities, thresholds)
+```
 
 ---
 
@@ -66,18 +74,6 @@ then open **http://localhost:9742/report.html**.
 
 Want charts and alerts too? `docker compose --profile monitoring up -d` adds Prometheus and Grafana
 (http://localhost:3000, admin/admin) with a pre-built dashboard.
-
-**A port is already in use?** Every published port is overridable — copy `.env.example` to `.env`
-and change the line that collides, or set it inline:
-
-```bash
-docker compose down          # if a previous `up` half-started
-KEYCENSUS_PORT=9743 docker compose up -d
-```
-
-Only the host side moves; the services keep talking to each other on their container ports.
-The KMS mock is published on **5050** rather than 5000 for exactly this reason: on macOS,
-port 5000 belongs to the AirPlay Receiver (*System Settings → General → AirDrop & Handoff*).
 
 ### What the demo scans
 
@@ -314,7 +310,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [x] Live integration tests against Azure Key Vault and Google Cloud KMS (OIDC, no stored secrets) *(0.3.0 — harness and fixtures; runs once the maintainer's accounts are wired up)*
 - [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
 - [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
-- [ ] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking
+- [x] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking *(0.5.0)*
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.

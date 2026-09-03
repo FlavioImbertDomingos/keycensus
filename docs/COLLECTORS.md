@@ -133,6 +133,12 @@ The demo's `mock-voltage/` serves this shape over HTTP and CSV.
   # auth: token + token_env: AZURE_TOKEN                # a raw bearer token (CI: az account get-access-token --resource https://vault.azure.net)
   include_certificates: true
   include_disabled: true
+
+  # Consumers -- see "Azure RBAC consumers" below
+  include_rbac: true
+  subscription_id: 00000000-0000-0000-0000-000000000000   # or resource_id, to skip the lookup
+  # arm_token_env: AZURE_ARM_TOKEN                        # only with auth: token
+  resolve_principal_names: false
 ```
 
 **Permissions:** `keys/list`, `keys/get`, `keys/getrotationpolicy`, `certificates/list`,
@@ -146,6 +152,40 @@ Certificate User* RBAC roles); on Managed HSM the *Managed HSM Crypto Auditor* r
 policy (`lifetimeActions` with a `Rotate` action) → `rotation_enabled`. Certificates are parsed from `cer`
 (the public part) and carry the issuer provider and the backing key's `kty`. Asset ids are version-less, so a
 rotation shows up as `last_rotated` changing in diff mode rather than as a new asset.
+
+### Azure RBAC consumers
+
+`include_rbac` (default on) fills in `used_by` — who is authorised to *use* these keys. Azure has three
+authorization models and the collector reads whichever the vault actually uses:
+
+| Vault | Where the answer lives | Extra permission | Extra token |
+|---|---|---|---|
+| RBAC vault (`enableRbacAuthorization: true`) | ARM role assignments at the vault scope | `Microsoft.Authorization/roleAssignments/read` + `Microsoft.KeyVault/vaults/read` (built-in **Reader** covers both) | management plane |
+| Access-policy vault (the older model) | `properties.accessPolicies` on the vault resource | `Microsoft.KeyVault/vaults/read` | management plane |
+| Managed HSM | the HSM's own data plane, local RBAC | none beyond listing keys | none |
+
+Two things to know before you turn it on:
+
+- **The management plane is a different endpoint and a different token audience.** With
+  `auth: default` the credential chain handles it. With `auth: token` you must supply
+  `arm_token_env` as well — one bearer token is never valid for two audiences:
+  ```bash
+  export AZURE_TOKEN=$(az account get-access-token --resource https://vault.azure.net --query accessToken -o tsv)
+  export AZURE_ARM_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+  ```
+- **Azure authorizes at the vault scope, not per key.** So every asset in a vault carries the same
+  `used_by` list. AWS grants and GCP IAM bindings are per key; pretending Azure is too would invent
+  precision the platform does not have.
+
+Roles that only *list* — *Key Vault Reader*, *Managed HSM Crypto Auditor* — are deliberately not
+consumers: they can see that a key exists, not use it.
+
+Principals come back as object ids (GUIDs); ARM does not resolve names. `resolve_principal_names: true`
+looks them up in Microsoft Graph, which needs `Directory.Read.All` — a much larger permission than
+reading an inventory, so it is off by default. GUIDs still link through an explicit
+`{principal: "..."}` selector; automatic name matching needs the names.
+
+A 403 anywhere in this path is logged and tolerated. No consumer information is worse than no inventory.
 
 ## `gcp-kms` — Google Cloud KMS
 
