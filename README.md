@@ -10,7 +10,7 @@ and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** a
 
 <img width="791" height="795" alt="image" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
 
-<img width="914" height="506" alt="image" src="https://github.com/user-attachments/assets/6031385b-dbd2-4271-bee7-2a4d30f5f77b" />
+<img width="1233" height="810" alt="image" src="https://github.com/user-attachments/assets/78b0d46a-6581-4f04-840c-21813b595f80" />>
 
 [![CI](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml/badge.svg)](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -37,8 +37,6 @@ Why now? Two reasons. **PCI DSS 4.0** now *requires* the list (requirement 12.3.
 March 2025). And **quantum computers** will eventually open a whole category of today's locks
 (RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
 You can't replace what you haven't counted.
-
-<img width="1233" height="810" alt="image" src="https://github.com/user-attachments/assets/78b0d46a-6581-4f04-840c-21813b595f80" />
 
 ---
 
