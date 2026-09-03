@@ -8,6 +8,12 @@
 #      CBOM          http://localhost:9742/cbom.json
 #      Metrics       http://localhost:9742/metrics
 #      Vault UI      http://localhost:8200   (token: root)
+#      KMS mock      http://localhost:5050   (moto; container port stays 5000)
+#
+#  Every published port is overridable, so a port already taken on your machine
+#  is a one-line fix -- copy .env.example to .env and change it, e.g.
+#      KMS_PORT=5051 VAULT_PORT=8201 docker compose up -d
+#  Only the host side moves; container ports and service URLs never change.
 #
 #  Optional monitoring (Prometheus + Grafana):
 #      docker compose --profile monitoring up -d
@@ -39,7 +45,7 @@ services:
       - ./config/keycensus.demo.yml:/config/keycensus.yml:ro
       - keycensus-out:/out
     ports:
-      - "9742:9742"
+      - "${KEYCENSUS_PORT:-9742}:9742"
     depends_on:
       vault-seed:
         condition: service_completed_successfully
@@ -58,7 +64,7 @@ services:
       VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-root}
       VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
     ports:
-      - "8200:8200"
+      - "${VAULT_PORT:-8200}:8200"
     healthcheck:
       test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
       interval: 3s
@@ -84,7 +90,7 @@ services:
     image: motoserver/moto:5.0.28
     container_name: kms
     ports:
-      - "5000:5000"
+      - "${KMS_PORT:-5050}:5000"      # host 5050: macOS AirPlay Receiver owns 5000
 
   # Pretend Voltage SecureData export (HTTP :8800) + an HTTPS port to scan (:8443).
   voltage:
@@ -96,8 +102,8 @@ services:
       MOCK_PASSWORD: ${VOLTAGE_PASSWORD:-changeme}
       MOCK_TLS_CERT_DAYS: "20"
     ports:
-      - "8800:8800"
-      - "8443:8443"
+      - "${VOLTAGE_PORT:-8800}:8800"
+      - "${VOLTAGE_TLS_PORT:-8443}:8443"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8800/health')"]
       interval: 3s
@@ -114,7 +120,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts:/etc/prometheus/alerts:ro
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     depends_on: [keycensus]
 
   grafana:
@@ -130,7 +136,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     depends_on: [prometheus]
 
 volumes:
