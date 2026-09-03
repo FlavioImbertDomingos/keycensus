@@ -3,15 +3,18 @@
 **A census of every cryptographic key, certificate and TLS endpoint you own — and what's wrong with them.**
 
 One command scans your HSMs (PKCS#11, CipherTrust Manager, KeySafe 5), Vault, AWS KMS, Azure Key Vault /
-Managed HSM, Google Cloud KMS, Voltage, certificate folders and TLS ports; produces a
-standards-based **CBOM** (CycloneDX 1.6), an HTML report a human can read, and Prometheus metrics;
-and grades every asset against **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the
-**NIST IR 8547 post-quantum timeline**.
+Managed HSM, Google Cloud KMS, Voltage, certificate folders and TLS ports, and grades every asset against
+**PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the **NIST IR 8547** post-quantum timeline.
 
-<img width="1233" height="810" alt="image" src="https://github.com/user-attachments/assets/78b0d46a-6581-4f04-840c-21813b595f80" />
+It answers three questions, not one: **what do we have** — a standards-based CBOM (CycloneDX 1.6), an HTML
+report a human can read, Prometheus metrics. **What just got worse** — every rescan is diffed and classified,
+so a key that became exportable pages someone instead of waiting for an audit. **What breaks if this key is
+revoked** — your SBOMs joined to the keys each application actually uses.
+
+<img width="1233" height="810" alt="keycensus alerting architecture: collect, inventory and grade, diff and classify, publish and alert" src="https://github.com/user-attachments/assets/78b0d46a-6581-4f04-840c-21813b595f80" />
 
 
-<img width="791" height="795" alt="image" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
+<img width="791" height="795" alt="keycensus HTML report: findings ranked by severity, each naming the asset, the rule and the PCI DSS / NIST control it maps to" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
 
 [![CI](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml/badge.svg)](https://github.com/FlavioImbertDomingos/keycensus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -155,6 +158,14 @@ sources:
   - name: edges
     type: tls
     endpoints: ["api.example.com:443"]
+
+# Optional: join your SBOMs to the keys each application uses (see below).
+applications:
+  - sbom: sboms/payments-api.cdx.json      # CycloneDX or SPDX 2.2/2.3 JSON
+    owner: payments-team
+    uses:
+      - {source: luna-payments, name: "pan-*"}
+      - {principal: "arn:aws:iam::*:role/payments-api*"}
 ```
 
 Then either run it on a schedule (`keycensus scan ... --fail-on high` in CI / cron) or leave it
@@ -229,6 +240,46 @@ has the walkthrough.
 
 ---
 
+## Who uses this key
+
+The question an incident actually starts with is not *is this key weak* — it is *if I revoke this key right
+now, what stops working?* keycensus answers it from two kinds of evidence.
+
+**Inferred**, from the key store itself: AWS KMS grants and key-policy principals, GCP IAM bindings, Azure
+role assignments and access policies, Vault ACL policies granting `transit/<op>/<key>`, CipherTrust
+application and owner. Five of the ten collectors can do this; PKCS#11, PEM, TLS, Voltage and KeySafe 5 have
+no notion of a consumer, so those keys are declared instead.
+
+**Declared**, from your SBOMs — CycloneDX or SPDX 2.2/2.3 JSON:
+
+```yaml
+applications:
+  - sbom: sboms/payments-api.cdx.json      # or payments-api.spdx.json
+    owner: payments-team
+    uses:
+      - {source: luna-payments, name: "pan-*"}
+      - {principal: "arn:aws:iam::*:role/payments-api*"}
+```
+
+```
+$ keycensus link -c keycensus.yml -i out/inventory.json -o out
+
+  payments-api                       14 assets     2 findings  worst high
+  auth-service                        6 assets     0 findings  worst -
+  batch-reporting                     3 assets     1 findings  worst medium
+
+4 asset(s) not linked to any application
+```
+
+Those four unlinked assets are the interesting line: a key nothing claims is either dead weight or a blast
+radius nobody has mapped. The CBOM gets `application` components with `dependsOn` edges to the keys, so
+Dependency-Track and other CycloneDX tools render the graph.
+
+**Read it honestly.** These are *authorisations*, not observed use — a principal that may use a key is listed
+whether or not it ever did. That is what least-privilege review wants, and it is not telemetry. Scope also
+differs by platform: AWS, GCP and Vault authorize per key; **Azure authorizes per vault**, so every asset in a
+vault carries the same consumer list. Details: [docs/LINKING.md](docs/LINKING.md).
+
 ## Alerting on change, not just on state
 
 A finding tells you the estate is bad. It cannot tell you the estate *got* bad an hour ago — and that
@@ -280,6 +331,10 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
   (SoftHSM, a real Vault, moto's AWS API, generated certs, a live TLS handshake).
 - The Azure Key Vault / Managed HSM and Google Cloud KMS collectors speak the documented REST APIs and are
   tested against recorded responses; they have not yet run against a live subscription/project in CI.
+- **Azure RBAC consumers are mock-tested only.** The ARM role-assignment, access-policy and Managed HSM
+  local-RBAC paths are exercised against recorded responses; none has run against a live tenant. The live
+  harness asserts they degrade quietly rather than that they return anything, because a CI identity without
+  *Reader* is the normal case.
 - The CipherTrust Manager and KeySafe 5 collectors were written from the vendors' REST API references and
   tested against mocks. Field names are matched tolerantly and can be remapped; a redacted real response is
   the most useful issue you can open.
@@ -299,8 +354,8 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [x] SBOM ↔ CBOM linking: which application uses which key *(0.3.0)*
 - [x] Live integration tests against Azure Key Vault and Google Cloud KMS (OIDC, no stored secrets) *(0.3.0 — harness and fixtures; runs once the maintainer's accounts are wired up)*
 - [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
-- [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
 - [x] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking *(0.5.0)*
+- [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.
