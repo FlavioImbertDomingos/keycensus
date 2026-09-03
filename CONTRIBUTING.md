@@ -25,7 +25,7 @@ Run the demo without Docker:
 python demo/make_demo_certs.py demo/certs
 export SOFTHSM2_CONF=demo/softhsm2.conf   # edit tokendir to somewhere writable
 python demo/seed_softhsm.py
-moto_server -p 5000 &  python demo/seed_kms.py --endpoint http://localhost:5000
+moto_server -p 5050 &  python demo/seed_kms.py --endpoint http://localhost:5050   # 5000 is AirPlay on macOS
 python mock-voltage/app.py &
 HSM_PIN=1234 VOLTAGE_PASSWORD=changeme AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
   keycensus scan -c config/keycensus.demo.yml -o out   # adjust hostnames to localhost

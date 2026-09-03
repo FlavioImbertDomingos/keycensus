@@ -67,6 +67,18 @@ then open **http://localhost:9742/report.html**.
 Want charts and alerts too? `docker compose --profile monitoring up -d` adds Prometheus and Grafana
 (http://localhost:3000, admin/admin) with a pre-built dashboard.
 
+**A port is already in use?** Every published port is overridable — copy `.env.example` to `.env`
+and change the line that collides, or set it inline:
+
+```bash
+docker compose down          # if a previous `up` half-started
+KEYCENSUS_PORT=9743 docker compose up -d
+```
+
+Only the host side moves; the services keep talking to each other on their container ports.
+The KMS mock is published on **5050** rather than 5000 for exactly this reason: on macOS,
+port 5000 belongs to the AirPlay Receiver (*System Settings → General → AirDrop & Handoff*).
+
 ### What the demo scans
 
 Nothing is faked in the *code path* — only the *backends* are stand-ins:
