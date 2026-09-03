@@ -1,0 +1,97 @@
+name: Live integration (Azure / GCP)
+
+# Runs the collectors against real cloud accounts. Nothing here uses a long-lived secret: both clouds
+# trust GitHub's OIDC token for this repository (workload identity federation), and the only inputs are
+# repository *variables* (Settings > Secrets and variables > Actions > Variables):
+#
+#   Azure: AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, KEYCENSUS_IT_AZURE_VAULT_URL
+#   GCP:   GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT, KEYCENSUS_IT_GCP_PROJECT, KEYCENSUS_IT_GCP_LOCATION
+#
+# A job is skipped (not failed) while its variables are unset, so forks and fresh clones stay green.
+# Setup: docs/INTEGRATION-TESTS.md. Fixtures: tests/integration/bootstrap-*.sh.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"          # Mondays 05:17 UTC
+  push:
+    branches: [main]
+    paths:
+      - "keycensus/collectors/azure_keyvault.py"
+      - "keycensus/collectors/gcp_kms.py"
+      - "tests/integration/**"
+      - ".github/workflows/integration.yml"
+
+permissions:
+  contents: read
+  id-token: write                 # OIDC token for the cloud logins
+
+jobs:
+  azure:
+    name: Azure Key Vault (live)
+    if: vars.KEYCENSUS_IT_AZURE_VAULT_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test,azure]"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Live tests
+        run: python -m pytest -q tests/integration/test_azure_live.py -rs
+        env:
+          KEYCENSUS_IT_AZURE_VAULT_URL: ${{ vars.KEYCENSUS_IT_AZURE_VAULT_URL }}
+          KEYCENSUS_IT_FIXTURES: ${{ vars.KEYCENSUS_IT_FIXTURES || '1' }}
+      - name: Full scan artifact (report + CBOM of the fixture vault)
+        run: |
+          cat > it.yml <<EOF
+          sources:
+            - name: azure-it
+              type: azure-keyvault
+              vault_url: ${{ vars.KEYCENSUS_IT_AZURE_VAULT_URL }}
+          EOF
+          keycensus scan -c it.yml -o out-azure || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azure-live-scan
+          path: out-azure/
+
+  gcp:
+    name: Google Cloud KMS (live)
+    if: vars.KEYCENSUS_IT_GCP_PROJECT != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test,gcp]"
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - name: Live tests
+        run: python -m pytest -q tests/integration/test_gcp_live.py -rs
+        env:
+          KEYCENSUS_IT_GCP_PROJECT: ${{ vars.KEYCENSUS_IT_GCP_PROJECT }}
+          KEYCENSUS_IT_GCP_LOCATION: ${{ vars.KEYCENSUS_IT_GCP_LOCATION }}
+          KEYCENSUS_IT_FIXTURES: ${{ vars.KEYCENSUS_IT_FIXTURES || '1' }}
+      - name: Full scan artifact
+        run: |
+          cat > it.yml <<EOF
+          sources:
+            - name: gcp-it
+              type: gcp-kms
+              project: ${{ vars.KEYCENSUS_IT_GCP_PROJECT }}
+          EOF
+          keycensus scan -c it.yml -o out-gcp || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gcp-live-scan
+          path: out-gcp/
+
