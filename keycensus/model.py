@@ -191,8 +191,9 @@ class Application:
     owner: str | None = None
     description: str | None = None
     sbom_path: str | None = None
-    sbom_serial: str | None = None  # serialNumber of the SBOM the application came from
+    sbom_serial: str | None = None  # serialNumber (CycloneDX) or documentNamespace (SPDX)
     sbom_components: int | None = None
+    sbom_format: str | None = None  # "cyclonedx" | "spdx"
     uses: list[dict[str, Any]] = field(default_factory=list)  # selectors from the config
     asset_ids: list[str] = field(default_factory=list)
     matches: dict[str, list[str]] = field(default_factory=dict)  # asset id -> why it matched

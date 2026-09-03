@@ -9,8 +9,9 @@ from two kinds of evidence:
    principals, GCP KMS IAM bindings, Vault ACL policies that grant `transit/<op>/<key>`,
    CipherTrust `application` / owner. Collectors put these on `asset.used_by`.
 2. **Declared applications** -- an `applications:` list in the config, each optionally backed by
-   a CycloneDX SBOM (name, version, purl and bom-ref are taken from `metadata.component`), with
-   selectors saying which assets it uses:
+   an SBOM in **CycloneDX** (name, version, purl and bom-ref from `metadata.component`) or
+   **SPDX 2.2/2.3 JSON** (from the package the document DESCRIBES), with selectors saying which
+   assets it uses:
 
        applications:
          - name: payments-api
@@ -87,23 +88,92 @@ def load_applications(entries: list[dict] | None, base_dir: str | Path | None = 
 
 
 def read_sbom(path: str | Path) -> dict:
-    """Load a CycloneDX JSON SBOM; raise LinkingError with a useful message otherwise."""
+    """Load a CycloneDX or SPDX JSON SBOM; raise LinkingError with a useful message otherwise."""
     p = Path(path)
     try:
         doc = json.loads(p.read_text())
     except OSError as exc:
         raise LinkingError(f"cannot read SBOM {p}: {exc}") from exc
     except ValueError as exc:
-        raise LinkingError(f"{p} is not JSON: {exc} (SPDX / XML SBOMs are not supported yet)") from exc
-    if doc.get("bomFormat") != "CycloneDX":
-        raise LinkingError(f"{p}: not a CycloneDX BOM (bomFormat={doc.get('bomFormat')!r})")
-    return doc
+        raise LinkingError(
+            f"{p} is not JSON: {exc}. CycloneDX JSON and SPDX 2.2/2.3 JSON are supported; "
+            "XML and SPDX tag-value are not -- convert with `syft convert` or `cyclonedx-cli`."
+        ) from exc
+    if not isinstance(doc, dict):
+        raise LinkingError(f"{p}: expected a JSON object at the top level")
+    if doc.get("bomFormat") == "CycloneDX" or "metadata" in doc and "components" in doc:
+        return doc
+    if str(doc.get("spdxVersion", "")).upper().startswith("SPDX-"):
+        return doc
+    raise LinkingError(
+        f"{p}: not recognisable as CycloneDX (bomFormat={doc.get('bomFormat')!r}) "
+        f"or SPDX (spdxVersion={doc.get('spdxVersion')!r})"
+    )
+
+
+def sbom_format(doc: dict) -> str:
+    return "spdx" if str(doc.get("spdxVersion", "")).upper().startswith("SPDX-") else "cyclonedx"
+
+
+def _spdx_root_package(doc: dict) -> dict:
+    """The package the document DESCRIBES -- the application itself, as opposed to its
+    dependencies. SPDX gives three ways to say it, and real tools use all three."""
+    packages = doc.get("packages") or []
+    by_id = {str(p.get("SPDXID")): p for p in packages if isinstance(p, dict)}
+
+    described = [str(x) for x in (doc.get("documentDescribes") or [])]  # 2.2 shorthand
+    for rel in doc.get("relationships") or []:
+        if str(rel.get("relationshipType", "")).upper() == "DESCRIBES" and str(rel.get("spdxElementId", "")) in (
+            "SPDXRef-DOCUMENT",
+            doc.get("SPDXID", "SPDXRef-DOCUMENT"),
+        ):
+            described.append(str(rel.get("relatedSpdxElement")))
+
+    for ref in described:
+        if ref in by_id:
+            return by_id[ref]
+    if len(packages) == 1:
+        return packages[0]
+    return {}
+
+
+def _spdx_purl(pkg: dict) -> str | None:
+    for ref in pkg.get("externalRefs") or []:
+        if str(ref.get("referenceType", "")).lower() == "purl":
+            return _str_or_none(ref.get("referenceLocator"))
+    return None
+
+
+def _spdx_supplier(pkg: dict) -> str | None:
+    """SPDX writes actors as "Organization: ACME Corp" or "Person: A. Dev (a@x)"."""
+    for field_name in ("supplier", "originator"):
+        raw = _str_or_none(pkg.get(field_name))
+        if not raw or raw.upper() == "NOASSERTION":
+            continue
+        value = raw.split(":", 1)[1].strip() if ":" in raw else raw
+        return value.split("(")[0].strip() or None
+    return None
 
 
 def _apply_sbom(app: Application, path: Path) -> None:
     doc = read_sbom(path)
-    comp = (doc.get("metadata") or {}).get("component") or {}
     app.sbom_path = str(path)
+    app.sbom_format = sbom_format(doc)
+
+    if app.sbom_format == "spdx":
+        pkg = _spdx_root_package(doc)
+        app.sbom_serial = _str_or_none(doc.get("documentNamespace"))
+        app.sbom_components = len(doc.get("packages") or [])
+        # The document name is a last resort: it is usually the file name, not the app.
+        app.name = app.name or str(pkg.get("name") or doc.get("name") or path.stem)
+        app.version = app.version or _str_or_none(pkg.get("versionInfo"))
+        app.purl = app.purl or _spdx_purl(pkg)
+        app.bom_ref = app.bom_ref or _str_or_none(pkg.get("SPDXID"))
+        app.description = app.description or _str_or_none(pkg.get("description")) or _str_or_none(pkg.get("summary"))
+        app.owner = app.owner or _spdx_supplier(pkg)
+        return
+
+    comp = (doc.get("metadata") or {}).get("component") or {}
     app.sbom_serial = doc.get("serialNumber")
     app.sbom_components = len(doc.get("components") or [])
     app.name = app.name or str(comp.get("name") or path.stem)

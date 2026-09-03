@@ -1,0 +1,79 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "batch-reporting-sbom",
+  "documentNamespace": "https://demo.bank/spdx/batch-reporting/9c1f4a20-6c1e-4c6e-9c76-2d2a1f0b7e11",
+  "creationInfo": {
+    "created": "2026-09-03T00:00:00Z",
+    "creators": ["Tool: syft-1.18.1", "Organization: Data Platform"]
+  },
+  "comment": "The third demo application deliberately ships an SPDX SBOM rather than CycloneDX, so the demo exercises both readers. keycensus takes the application's identity from the package the document DESCRIBES -- not from the document name, which here is the file, not the app.",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-batch-reporting",
+      "name": "batch-reporting",
+      "versionInfo": "3.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "supplier": "Organization: Data Platform (data-platform@demo.bank)",
+      "description": "Nightly settlement and regulatory reporting batch",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:maven/bank.demo/batch-reporting@3.1.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-bouncycastle",
+      "name": "bcprov-jdk18on",
+      "versionInfo": "1.78.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:maven/org.bouncycastle/bcprov-jdk18on@1.78.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-aws-sdk",
+      "name": "software.amazon.awssdk:kms",
+      "versionInfo": "2.28.11",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "Apache-2.0",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:maven/software.amazon.awssdk/kms@2.28.11"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-batch-reporting"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-batch-reporting",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-bouncycastle"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-batch-reporting",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-aws-sdk"
+    }
+  ]
+}

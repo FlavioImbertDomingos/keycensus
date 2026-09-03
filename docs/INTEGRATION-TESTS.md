@@ -46,10 +46,14 @@ SCOPE=$(az keyvault show -n <vault> --query id -o tsv)
 az role assignment create --assignee "$APP" --role "Key Vault Crypto User" --scope "$SCOPE"
 az role assignment create --assignee "$APP" --role "Key Vault Certificate User" --scope "$SCOPE"
 az role assignment create --assignee "$APP" --role "Key Vault Reader" --scope "$SCOPE"
+# management plane, for the RBAC consumer test: read the vault resource and its role assignments
+az role assignment create --assignee "$APP" --role "Reader" --scope "$SCOPE"
 ```
 
 Repository **variables** (Settings → Secrets and variables → Actions → Variables):
 `AZURE_CLIENT_ID` = `$APP`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `KEYCENSUS_IT_AZURE_VAULT_URL`.
+`AZURE_SUBSCRIPTION_ID` does double duty: the collector uses it to find the vault in ARM when
+`include_rbac` is on.
 Add a second federated credential with subject `repo:...:environment:...` or `...:ref:refs/tags/*` if you
 want tags or environments to run it too. The rotation-policy read needs `keys/getrotationpolicy`, which
 *Key Vault Crypto User* includes.
@@ -96,10 +100,11 @@ KEYCENSUS_IT_GCP_PROJECT=keycensus-it pytest tests/integration/test_gcp_live.py 
 ## What is (and is not) covered
 
 Covered: listing, paging, key/certificate mapping, rotation policy, disabled keys, protection levels
-(HSM when the premium tier / HSM key is present), IAM consumers on GCP. Not covered: Azure Managed
-HSM (a dedicated pool costs real money — the collector treats it as a Key Vault with a different host
-and scope, which the unit tests exercise), and RBAC consumers on Azure (needs the ARM API; on the
-roadmap).
+(HSM when the premium tier / HSM key is present), IAM consumers on GCP, and — since 0.5.0 — Azure
+RBAC consumers, provided the CI identity also holds **Reader** on the fixture vault (the bootstrap
+script grants it). Not covered: Azure Managed HSM (a dedicated pool costs real money — the collector
+treats it as a Key Vault with a different host and scope, which the unit tests exercise), and
+Microsoft Graph principal-name resolution, which needs `Directory.Read.All`.
 
 The status of this harness in the upstream repository: the code and workflow are in place; the
 fixtures and federated identities exist only in the maintainer's accounts once he sets them up, and
