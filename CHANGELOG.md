@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0 — 2026-09-03
+
+**Alerting on change, not just on state.** The diff existed as a CLI command and an exit code and
+exported no metrics, so "a key became exportable an hour ago" could not fire anything. Suggested by
+[Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/), who pointed out that diff mode without alerts is half a
+feature.
+
+- `keycensus/changes.py` — every raw field change is classified into a **kind** with an **urgency**
+  (`page` / `digest` / `ignore`). 30 kinds; 12 page by default. Weakening is judged with the same
+  strength model the findings use, so RSA-3072 → RSA-2048 pages and RSA-2048 → RSA-4096 does not, and
+  a key that was already `destroyed` disappearing is a digest rather than a page.
+- `keycensus changes` — `--kinds` prints the vocabulary and its default urgency; two inventory files
+  print the classified diff, with the *reason* each page-worthy change matters.
+- **Metrics**: `keycensus_change_total{kind,urgency,source}`, `keycensus_changes_last_scan{kind,urgency}`,
+  `keycensus_last_change_timestamp_seconds`, `keycensus_diffs_total`. `serve` diffs every rescan
+  against the previous one and publishes `/diff.json` and `/changes.json` beside the report.
+- **Alert rules**: six new rules in `prometheus/alerts/keycensus.rules.yml` — a catch-all on
+  `urgency="page"`, dedicated pages for a vanished key / a key that became exportable / crypto that
+  weakened / rotation being switched off, a digest rule that never pages, and
+  `KeycensusNoChangeDetectionRunning` for when the diff itself stops running.
+- **Webhooks** (`keycensus/notify.py`) for teams without Prometheus: `generic`, `slack` and `teams`
+  payloads, `on: page|any|never`. The URL comes from the environment and an inline `webhook_url:` is
+  rejected — a webhook URL is a credential. A delivery failure never changes the exit code.
+- `changes.urgency` in the config re-maps any kind; an unknown kind is a config error, not a silent
+  no-op, so a typo cannot quietly disable an alert.
+- `--fail-on-page` on `scan` and `diff`: **exit 5** when the estate got worse. Ignores the churn of
+  new keys and rotations that `--fail-on-change` (exit 4) catches.
+- Docs: [docs/ALERTING.md](docs/ALERTING.md), with a short opinion on what should page and what
+  should not.
+
+
 ## [0.3.0] - 2026-09-02
 
 ### Added

@@ -22,9 +22,14 @@ from prometheus_client import REGISTRY, generate_latest
 from prometheus_client.exposition import CONTENT_TYPE_LATEST
 
 from .analysis.policy import Policy
+from .changes import classify, summarize
+from .changes import render_text as render_changes
 from .config import Config
+from .diff import diff_dicts
+from .diff import render_json as render_diff_json
 from .exporters import cbom, html_report, json_export
 from .exporters.prometheus import InventoryCollector
+from .notify import NotifyConfig, send
 from .scanner import scan
 
 log = logging.getLogger(__name__)
@@ -35,6 +40,7 @@ class State:
         self.lock = threading.Lock()
         self.outputs: dict[str, tuple[str, str]] = {}  # path -> (content-type, body)
         self.ready = False
+        self.previous: dict | None = None  # last scan, for the change diff
 
 
 def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, state: State, interval: float):
@@ -44,6 +50,34 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
             inv = scan(config, policy)
             collector.inventory = inv
             collector.scan_count += 1
+
+            # ---- what changed since the last scan --------------------------
+            # State metrics cannot answer "a key became exportable an hour ago",
+            # so every rescan is diffed against the previous one and the result
+            # is counted, exposed and (optionally) sent to a webhook.
+            current = inv.to_dict()
+            change_outputs: dict[str, tuple[str, str]] = {}
+            if state.previous is not None:
+                d = diff_dicts(state.previous, current)
+                changes = classify(d, config.change_urgency)
+                collector.record_changes(changes)
+                change_outputs = {
+                    "/diff.json": ("application/json", render_diff_json(d)),
+                    "/changes.json": ("application/json", json.dumps(summarize(changes), indent=2, default=str)),
+                }
+                if changes:
+                    s_ch = summarize(changes)
+                    log.info(
+                        "changes since last scan: %d page, %d digest (%s)",
+                        s_ch["by_urgency"].get("page", 0), s_ch["by_urgency"].get("digest", 0),
+                        ", ".join(f"{k}={v}" for k, v in s_ch["by_kind"].items()),
+                    )  # fmt: skip
+                    for line in render_changes(changes).splitlines():
+                        if line.strip():
+                            log.info("  %s", line)
+                _maybe_notify(config, changes)
+            state.previous = current
+
             rendered = {
                 "/report.html": ("text/html; charset=utf-8", html_report.render(inv)),
                 "/inventory.json": ("application/json", json_export.render(inv)),
@@ -52,6 +86,7 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
                     "application/json",
                     json.dumps([f.to_dict() for f in inv.findings], indent=2),
                 ),
+                **change_outputs,
             }
             with state.lock:
                 state.outputs = rendered
@@ -66,6 +101,21 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
             log.exception("scan failed: %s", exc)
         collector.last_duration = time.perf_counter() - started
         time.sleep(max(1.0, interval))
+
+
+def _maybe_notify(config: Config, changes) -> None:
+    """Fire the webhook if one is configured. A delivery failure is logged and
+    swallowed: the scanner's job is to keep scanning."""
+    try:
+        cfg = NotifyConfig.from_dict(config.notifications)
+    except Exception as exc:  # noqa: BLE001 - a bad notify block must not stop scanning
+        log.warning("notifications config is invalid, not sending: %s", exc)
+        return
+    if cfg is None:
+        return
+    result = send(changes, cfg, context={"environment": config.serve.get("environment", ""), "source": "serve"})
+    if result["reason"] not in ("ok",) and result["payload"] is not None:
+        log.warning("notification not delivered: %s", result["reason"])
 
 
 def make_handler(state: State):

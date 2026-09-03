@@ -42,6 +42,9 @@ services:
       HSM_PIN: ${HSM_PIN:-1234}
       VAULT_TOKEN: ${VAULT_TOKEN:-root}
       VOLTAGE_PASSWORD: ${VOLTAGE_PASSWORD:-changeme}
+      # Export KEYCENSUS_WEBHOOK_URL and uncomment `notifications:` in
+      # config/keycensus.demo.yml to have the demo post page-worthy changes.
+      KEYCENSUS_WEBHOOK_URL: ${KEYCENSUS_WEBHOOK_URL:-}
       KMS_ENDPOINT: http://kms:5000
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test

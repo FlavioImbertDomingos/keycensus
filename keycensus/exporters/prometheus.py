@@ -25,6 +25,28 @@ class InventoryCollector:
         self.scan_count = 0
         self.scan_errors = 0
         self.last_duration = 0.0
+        # Change accounting. `serve` diffs each rescan against the previous one
+        # and calls record_changes(); everything below is what makes "the estate
+        # got worse since the last scan" alertable rather than merely visible.
+        self.change_totals: dict[tuple[str, str, str], int] = {}  # (kind, urgency, source) -> count
+        self.last_changes: dict[tuple[str, str], int] = {}  # (kind, urgency) -> count in the last diff
+        self.last_change_ts: float = 0.0
+        self.diffs_computed = 0
+
+    def record_changes(self, changes) -> None:
+        """Accumulate a scan's classified changes. Counters only ever go up, so
+        `increase(keycensus_change_total[1h])` is the query an alert wants."""
+        self.diffs_computed += 1
+        self.last_changes = {}
+        for c in changes:
+            key = (c.kind, c.urgency, c.source or "")
+            self.change_totals[key] = self.change_totals.get(key, 0) + 1
+            lk = (c.kind, c.urgency)
+            self.last_changes[lk] = self.last_changes.get(lk, 0) + 1
+        if changes:
+            import time as _time  # noqa: PLC0415
+
+            self.last_change_ts = _time.time()
 
     def describe(self):
         return []
@@ -43,6 +65,37 @@ class InventoryCollector:
         dur = GaugeMetricFamily(f"{NS}_scan_duration_seconds", "Duration of the last scan")
         dur.add_metric([], self.last_duration)
         yield dur
+
+        # ---- change accounting ------------------------------------------------
+        # These are the series that make CHANGE alertable. Everything else in this
+        # exporter describes the estate's current state, which cannot answer
+        # "a key became exportable an hour ago".
+        diffs = CounterMetricFamily(f"{NS}_diffs", "Scans compared against the previous scan")
+        diffs.add_metric([], float(self.diffs_computed))
+        yield diffs
+
+        changes = CounterMetricFamily(
+            f"{NS}_change",
+            "Classified changes since the exporter started, by kind and urgency "
+            "(page = look now, digest = review weekly, ignore = good news or noise)",
+            labels=["kind", "urgency", "source"],
+        )
+        for (kind, urgency, source), n in sorted(self.change_totals.items()):
+            changes.add_metric([kind, urgency, source], float(n))
+        yield changes
+
+        last = GaugeMetricFamily(
+            f"{NS}_changes_last_scan", "Changes seen in the most recent diff", labels=["kind", "urgency"]
+        )
+        for (kind, urgency), n in sorted(self.last_changes.items()):
+            last.add_metric([kind, urgency], float(n))
+        yield last
+
+        last_ts = GaugeMetricFamily(
+            f"{NS}_last_change_timestamp_seconds", "Unix time of the last scan that saw any change"
+        )
+        last_ts.add_metric([], self.last_change_ts)
+        yield last_ts
 
         inv = self.inventory
         if inv is None:

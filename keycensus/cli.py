@@ -1,4 +1,4 @@
-"""Command line: scan | link | diff | upload | serve | rules | collectors | controls | validate."""
+"""Command line: scan | link | diff | changes | notify | upload | serve | rules | collectors | controls | validate."""
 
 from __future__ import annotations
 
@@ -54,8 +54,26 @@ def main():
               help="Previous inventory.json: also write diff.json + diff.md and print what changed.")  # fmt: skip
 @click.option("--fail-on-new", default=None, type=click.Choice(SEVERITIES),
               help="With --baseline: exit 3 if a NEW finding is at least this severe.")  # fmt: skip
+@click.option("--fail-on-page", is_flag=True,
+              help="With --baseline: exit 5 on any page-worthy change (see `keycensus changes --kinds`).")  # fmt: skip
+@click.option("--notify/--no-notify", default=None,
+              help="With --baseline: POST the classified changes to the configured webhook. "
+                   "Defaults to on when the config has a notifications block.")  # fmt: skip
+@click.option("--notify-dry-run", is_flag=True, help="Print the webhook payload instead of sending it.")
 @click.option("-v", "--verbose", is_flag=True)
-def scan(config_path, output_dir, formats, policy_path, fail_on, baseline_path, fail_on_new, verbose):
+def scan(
+    config_path,
+    output_dir,
+    formats,
+    policy_path,
+    fail_on,
+    baseline_path,
+    fail_on_new,
+    fail_on_page,
+    notify,
+    notify_dry_run,
+    verbose,
+):
     """Collect from every source, apply the policy, write reports."""
     _setup_logging(verbose)
     from .scanner import scan as run_scan
@@ -95,18 +113,39 @@ def scan(config_path, output_dir, formats, policy_path, fail_on, baseline_path, 
 
     rc = 0
     if baseline_path:
+        import json as _json
+
+        from .changes import PAGE, classify, summarize
+        from .changes import render_text as render_changes
         from .diff import diff_inventories, load_inventory_dict, render_json, render_markdown, render_text
 
         d = diff_inventories(load_inventory_dict(baseline_path), inv)
+        classified = classify(d, config.change_urgency)
         (out / "diff.json").write_text(render_json(d))
         (out / "diff.md").write_text(render_markdown(d))
-        click.echo(f"wrote {out / 'diff.json'} and diff.md", err=True)
+        (out / "changes.json").write_text(
+            _json.dumps({"summary": summarize(classified), "changes": [c.to_dict() for c in classified]},
+                        indent=2, default=str) + "\n"
+        )  # fmt: skip
+        click.echo(f"wrote {out / 'diff.json'}, diff.md and changes.json", err=True)
         click.echo("")
         click.echo(render_text(d).rstrip())
+        if classified:
+            click.echo("")
+            click.echo("by urgency (what would page vs what waits for the weekly digest):")
+            click.echo(render_changes(classified).rstrip())
+
+        if notify_dry_run or (notify if notify is not None else config.notifications is not None):
+            _notify(config, classified, dry_run=notify_dry_run, context={"source": "scan"})
+
         worst_new = d.worst_new_severity()
         if fail_on_new and worst_new and SEV_RANK[worst_new] <= SEV_RANK[fail_on_new]:
             click.echo(f"\nfailing: NEW findings at or above '{fail_on_new}' since the baseline", err=True)
             rc = 3
+        if fail_on_page and any(c.urgency == PAGE for c in classified):
+            n = sum(1 for c in classified if c.urgency == PAGE)
+            click.echo(f"\nfailing: {n} page-worthy change(s) since the baseline", err=True)
+            rc = rc or 5
 
     if fail_on:
         worst = min((SEV_RANK[f.severity] for f in inv.findings), default=99)
@@ -179,6 +218,77 @@ def validate(config_path):
     click.echo(f"policy: {config.policy}")
 
 
+def _notify(cfg, classified, dry_run: bool, context: dict | None = None):
+    """Send classified changes to the webhook. Shared by `scan` and `diff`."""
+    from .notify import NotifyConfig, NotifyError, render_preview, send
+
+    try:
+        ncfg = NotifyConfig.from_dict(cfg.notifications if cfg else None)
+    except NotifyError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if ncfg is None:
+        raise click.ClickException(
+            "--notify needs a `notifications:` block in the config (and -c pointing at it). See docs/ALERTING.md."
+        )
+    result = send(classified, ncfg, context=context or {}, dry_run=dry_run)
+    if dry_run:
+        click.echo("")
+        click.echo(f"webhook payload ({ncfg.format}, would POST to ${ncfg.url_env}):", err=True)
+        click.echo(render_preview(result["payload"]) if result["payload"] else "(nothing to send)")
+    elif result["sent"]:
+        click.echo(f"notified: {ncfg.format} webhook accepted the change set", err=True)
+    else:
+        click.echo(f"not notified: {result['reason']}", err=True)
+
+
+@main.command()
+@click.option("--kinds", is_flag=True, help="Print every change kind this build can emit and its default urgency.")
+@click.argument("before", type=click.Path(exists=True), required=False)
+@click.argument("after", type=click.Path(exists=True), required=False)
+@click.option("-c", "--config", "config_path", default=None, type=click.Path(exists=True))
+@click.option("-f", "--format", "fmt", default="text", type=click.Choice(["text", "json"]), show_default=True)
+@click.option("--include-ignored", is_flag=True, help="Also show changes classified as noise or good news.")
+def changes(kinds, before, after, config_path, fmt, include_ignored):
+    """Classify a diff into what should page and what can wait.
+
+    \b
+      keycensus changes --kinds                       the alerting vocabulary
+      keycensus changes old/inventory.json new/inventory.json
+    """
+    import json as _json
+
+    from .changes import classify, kinds_table, summarize
+    from .changes import render_text as render_changes
+
+    if kinds:
+        click.echo(kinds_table().rstrip())
+        return
+    if not (before and after):
+        raise click.ClickException("give two inventory.json files, or --kinds")
+
+    from .diff import diff_files
+
+    cfg = None
+    if config_path:
+        try:
+            cfg = load(config_path)
+        except ConfigError as exc:
+            raise click.ClickException(str(exc)) from exc
+    try:
+        classified = classify(diff_files(before, after), cfg.change_urgency if cfg else None)
+    except (ValueError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    if fmt == "json":
+        click.echo(
+            _json.dumps(
+                {"summary": summarize(classified), "changes": [c.to_dict() for c in classified]}, indent=2, default=str
+            )
+        )
+    else:
+        click.echo(render_changes(classified, include_ignored=include_ignored).rstrip())
+
+
 @main.command()
 @click.argument("before", type=click.Path(exists=True))
 @click.argument("after", type=click.Path(exists=True))
@@ -189,20 +299,52 @@ def validate(config_path):
 @click.option("--fail-on-new", default=None, type=click.Choice(SEVERITIES),
               help="Exit 3 if a finding that was not in BEFORE is at least this severe.")  # fmt: skip
 @click.option("--fail-on-change", is_flag=True, help="Exit 4 if anything at all changed (drift gate).")
-def diff(before, after, fmt, output, fail_on_new, fail_on_change):
+@click.option("--fail-on-page", is_flag=True,
+              help="Exit 5 if any change classified page-worthy appears (a key vanished, weakened, "
+                   "became exportable ...). See `keycensus changes --kinds`.")  # fmt: skip
+@click.option("-c", "--config", "config_path", default=None, type=click.Path(exists=True),
+              help="Config file, for changes.urgency overrides and the notifications block.")  # fmt: skip
+@click.option("--notify/--no-notify", default=False, help="POST the classified changes to the configured webhook.")
+@click.option("--notify-dry-run", is_flag=True, help="Print the webhook payload instead of sending it.")
+def diff(before, after, fmt, output, fail_on_new, fail_on_change, fail_on_page, config_path, notify, notify_dry_run):
     """What changed between two scans (two inventory.json files)."""
+    from .changes import PAGE, classify
+    from .changes import render_text as render_changes
     from .diff import RENDERERS, diff_files
 
     try:
         d = diff_files(before, after)
     except (ValueError, OSError) as exc:
         raise click.ClickException(str(exc)) from exc
+
+    cfg = None
+    if config_path:
+        try:
+            cfg = load(config_path)
+        except ConfigError as exc:
+            raise click.ClickException(str(exc)) from exc
+    classified = classify(d, cfg.change_urgency if cfg else None)
+
     text = RENDERERS[fmt](d)
     if output:
         Path(output).write_text(text)
         click.echo(f"wrote {output}", err=True)
     else:
         click.echo(text.rstrip())
+
+    if fmt == "text" and classified:
+        click.echo("")
+        click.echo("by urgency (what would page vs what waits for the weekly digest):")
+        click.echo(render_changes(classified).rstrip())
+
+    if notify or notify_dry_run:
+        _notify(cfg, classified, dry_run=notify_dry_run, context={"source": "diff"})
+
+    if fail_on_page and any(c.urgency == PAGE for c in classified):
+        n = sum(1 for c in classified if c.urgency == PAGE)
+        click.echo(f"\nfailing: {n} page-worthy change(s) since BEFORE", err=True)
+        sys.exit(5)
+
     worst = d.worst_new_severity()
     if fail_on_new and worst and SEV_RANK[worst] <= SEV_RANK[fail_on_new]:
         click.echo(f"\nfailing: new findings at or above '{fail_on_new}'", err=True)

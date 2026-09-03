@@ -1,5 +1,18 @@
-# Alerts on keycensus metrics. The scanner already grades findings; these rules
-# turn "the inventory got worse" into a page.
+# Alerts on keycensus metrics.
+#
+# Two families, and the difference matters:
+#
+#   STATE   "there is a critical finding right now", "this cert expires in 9 days".
+#           Correct, but it cannot tell you that a key became exportable an hour
+#           ago -- only that it is exportable, which it may always have been.
+#
+#   CHANGE  driven by keycensus_change_total{kind,urgency}, which `serve` emits
+#           after diffing each rescan against the previous one. This is what
+#           notices that the estate got *worse*, as opposed to being bad.
+#
+# Urgency is classification, not severity: `page` means look now, `digest` means
+# review it weekly. `keycensus changes --kinds` prints the whole vocabulary, and
+# `changes.urgency` in the config re-maps any kind for your estate.
 
 groups:
   - name: keycensus
@@ -47,3 +60,80 @@ groups:
         annotations:
           summary: "{{ $labels.name }} ({{ $labels.source }}) is {{ $value | printf \"%.0f\" }} days old"
           description: "Older than any sensible cryptoperiod; the report has the exact policy verdict."
+
+  # ------------------------------------------------------------------ change
+  - name: keycensus-change
+    rules:
+      # The catch-all. One rule covers every kind classified page-worthy, so a
+      # new kind in a later release starts alerting without editing this file.
+      - alert: KeycensusPageWorthyChange
+        expr: sum by (kind, source) (increase(keycensus_change_total{urgency="page"}[15m])) > 0
+        labels: {severity: high}
+        annotations:
+          summary: "{{ $labels.kind }} on {{ $labels.source }} ({{ $value | printf \"%.0f\" }} in 15m)"
+          description: >-
+            The key estate changed for the worse since the last scan. GET /changes.json on the
+            keycensus endpoint for the classified list, or run `keycensus changes --kinds` to see
+            what this kind means and why it pages.
+
+      # The three that deserve their own page text, because the response differs.
+      - alert: KeycensusKeyDisappeared
+        expr: increase(keycensus_change_total{kind="asset-removed"}[15m]) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} active key(s)/certificate(s) vanished from {{ $labels.source }}"
+          description: >-
+            A key that was ACTIVE in the previous scan is gone. Either it was deleted, or the source
+            stopped reporting it. Both are worth minutes, not days: check the source first
+            (keycensus_source_up), then the audit log of the key store.
+
+      - alert: KeycensusKeyBecameExportable
+        expr: increase(keycensus_change_total{kind="key-became-exportable"}[15m]) > 0
+        labels: {severity: critical}
+        annotations:
+          summary: "A key on {{ $labels.source }} can now be exported"
+          description: >-
+            Private material that could not leave the module now can. This is the attribute an
+            attacker flips before exfiltrating a key, and it is rarely changed on purpose.
+            Treat as an incident until the change ticket is found.
+
+      - alert: KeycensusCryptoWeakened
+        expr: >-
+          increase(keycensus_change_total{kind=~"algorithm-weakened|hardware-backing-lost|fips-validation-lost|protocol-weakened"}[1h]) > 0
+        labels: {severity: high}
+        annotations:
+          summary: "{{ $labels.kind }} on {{ $labels.source }}"
+          description: >-
+            Effective strength or assurance went down: a shorter key, a software-held key that used
+            to be in hardware, a lost FIPS boundary, or an endpoint that started accepting a
+            protocol it previously refused.
+
+      - alert: KeycensusRotationDisabled
+        expr: increase(keycensus_change_total{kind="rotation-disabled"}[1h]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Automatic rotation was turned off on {{ $labels.source }}"
+          description: >-
+            Nothing breaks today. The cryptoperiod quietly becomes unbounded, and the key ages past
+            policy without anything else firing.
+
+      # Digest: never pages. Route this one to a channel, not to a pager.
+      - alert: KeycensusChangeDigest
+        expr: sum by (kind) (increase(keycensus_change_total{urgency="digest"}[24h])) > 0
+        for: 10m
+        labels: {severity: info, digest: "true"}
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} × {{ $labels.kind }} in the last 24h"
+          description: "Routine change worth reviewing weekly, not worth interrupting anyone."
+
+      # The scanner is diffing, but nothing has changed for a long time. Usually
+      # means the baseline stopped updating rather than that the estate is calm.
+      - alert: KeycensusNoChangeDetectionRunning
+        expr: increase(keycensus_diffs_total[2h]) == 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "keycensus has not compared two scans in over 2 hours"
+          description: >-
+            Change alerting is blind while this is firing: the rules above are driven by the diff
+            between consecutive scans, and no diff has been computed. Check the serve loop.
