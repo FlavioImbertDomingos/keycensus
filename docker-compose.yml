@@ -19,6 +19,10 @@
 #      docker compose --profile monitoring up -d
 #      Grafana       http://localhost:3000   (admin / admin)
 #
+#  The two keycensus images are BUILT from this checkout (pull_policy: build), so
+#  Compose never contacts a registry for them. Released images are published to
+#  ghcr.io/flavioimbertdomingos/keycensus by CI.
+#
 #  Sources in the demo: a real Vault, a SoftHSM token (real PKCS#11),
 #  a faithful AWS KMS mock (moto, real boto3), a mock Voltage export,
 #  a folder of imperfect PEM files, and one TLS endpoint.
@@ -28,7 +32,8 @@ services:
 
   keycensus:
     build: .
-    image: keycensus/keycensus:latest
+    image: keycensus-demo:local
+    pull_policy: build          # built from this checkout -- never look for it in a registry
     container_name: keycensus
     environment:
       KEYCENSUS_DEMO: "1"                    # seed SoftHSM + KMS + certs on start
@@ -95,7 +100,8 @@ services:
   # Pretend Voltage SecureData export (HTTP :8800) + an HTTPS port to scan (:8443).
   voltage:
     build: ./mock-voltage
-    image: keycensus/mock-voltage:latest
+    image: keycensus-mock-voltage:local
+    pull_policy: build          # ditto
     container_name: voltage
     environment:
       MOCK_USERNAME: monitor
