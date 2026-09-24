@@ -91,3 +91,12 @@ def test_prometheus_collector(sample_inventory):
     assert up[("t", "test")] == 1.0 and up[("broken", "vault")] == 0.0
     ages = families["keycensus_key_age_days"].samples
     assert any(s.labels["name"] == "rsa-old" and s.value > 800 for s in ages)
+
+
+def test_html_report_escapes_scanned_values(sample_inventory):
+    # Key names, labels and errors come from the systems being scanned, so treat them as hostile.
+    payload = '<img src=x onerror="alert(1)">'
+    sample_inventory.assets[0].name = payload
+    html = html_report.render(sample_inventory)
+    assert payload not in html
+    assert "&lt;img src=x onerror=" in html

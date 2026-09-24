@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from importlib import resources
 
-from jinja2 import Environment, select_autoescape
+from jinja2 import Environment
 
 from .. import __version__
 from ..analysis import strength
@@ -21,7 +21,7 @@ _Q_CSS = {
 
 
 def _env() -> Environment:
-    env = Environment(autoescape=select_autoescape(["html"]))
+    env = Environment(autoescape=True)  # the report is HTML; never render unescaped
     return env
 
 
