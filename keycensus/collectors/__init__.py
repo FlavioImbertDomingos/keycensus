@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..config import SourceConfig
+from .adcs import AdcsCollector
 from .aws_kms import AwsKmsCollector
 from .azure_keyvault import AzureKeyVaultCollector
 from .base import Collector, CollectorError
@@ -28,6 +29,7 @@ REGISTRY: dict[str, type[Collector]] = {
         VoltageCollector,
         PemCollector,
         TlsCollector,
+        AdcsCollector,
     )
 }
 
@@ -42,6 +44,7 @@ DESCRIPTIONS = {
     "voltage": "OpenText Voltage SecureData key inventory export (JSON/CSV, file or URL)",
     "pem": "Certificates and keys in PEM/DER files on disk",
     "tls": "Live TLS endpoints: negotiated protocol, cipher suite, leaf certificate",
+    "adcs": "Microsoft AD CS: CA certificates and templates from AD (LDAP), issued certificates from certutil",
 }
 
 

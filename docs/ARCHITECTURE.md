@@ -5,7 +5,9 @@
                   │  builds one Collector per source, runs them in a thread pool
                   ▼
         ┌── collectors/ ───────────────────────────────────────────┐
-        │ pkcs11  vault  aws_kms  voltage  pem_files  tls_endpoint │   each returns list[CryptoAsset]
+        │ pkcs11  vault  aws_kms  azure_keyvault  gcp_kms          │   each returns list[CryptoAsset]
+        │ ciphertrust  keysafe5  voltage  adcs                     │
+        │ pem_files  tls_endpoint                                  │
         └──────────────────────────────────────────────────────────┘
                   │
                   ▼
@@ -59,7 +61,8 @@ PKCS#11 collector reads attributes, never values.
 
 **Real backends in the demo wherever possible.** SoftHSM is real PKCS#11; Vault is real Vault;
 moto is close enough that boto3 code is unmodified. Only Voltage is mocked, because there is
-nothing public to be faithful to.
+nothing public to be faithful to. AD CS is not in the demo: it needs a domain controller, so its
+tests use ldap3's in-memory directory and `certutil`-shaped CSVs instead.
 
 **Keypair halves are one key.** The public half of a PKCS#11 key pair is exported as an asset
 (it exists) but skipped by rules when the private half is present, so RSA-1024 is one finding,

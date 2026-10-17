@@ -3,8 +3,9 @@
 Most valuable contributions, in order:
 
 1. **Redacted real-world samples**: a `/partitions` attribute dump from a Luna or nShield, a
-   Voltage Management Console export, a KMS `DescribeKey` from a CloudHSM key store. These let
-   us lock down field mappings against reality.
+   Voltage Management Console export, a KMS `DescribeKey` from a CloudHSM key store, the header
+   row and one redacted row of a `certutil -view ... csv` export from an AD CS CA (especially a
+   non-English one). These let us lock down field mappings against reality.
 2. **New collectors**: Azure Key Vault / Managed HSM, Google Cloud KMS, CipherTrust Manager,
    KeySafe 5, Kubernetes secrets, JKS/PKCS#12 files.
 3. Rules you wish existed, with the control they map to.

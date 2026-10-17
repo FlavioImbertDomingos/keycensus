@@ -15,6 +15,7 @@ use each key on `asset.used_by`:
 | Google Cloud KMS | IAM bindings on the CryptoKey for crypto roles (`cryptoKeyEncrypterDecrypter`, `signerVerifier`, …) | `iam:<role>` |
 | HashiCorp Vault | ACL policies granting `transit/<encrypt\|decrypt\|sign\|verify\|hmac\|keys\|…>/<key>` (exact or glob) | `vault-policy:<op>` |
 | CipherTrust Manager | `application` and `owner` on the key | `ctm-application`, `ctm-owner` |
+| Microsoft AD CS | the requester of each issued certificate (`CORP\web01$`, `CORP\jdoe`), from the CA database export | `enrollment` |
 
 Each needs one extra read permission (`kms:ListGrants` + `kms:GetKeyPolicy`, `getIamPolicy`,
 `sys/policies/acl`); when denied the collector carries on with an empty list. Turn off with

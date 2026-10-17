@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.6.0 — 2026-10-16
+
+**Microsoft AD CS.** Most Windows estates run their internal PKI on Active Directory Certificate
+Services, and until now keycensus only saw its certificates after they landed on a disk or a port.
+The new `adcs` collector reads the PKI at the source.
+
+- **From Active Directory (LDAP):** every enterprise CA certificate, the trusted roots, the
+  NTAuth and AIA stores, and the templates each CA publishes with their crypto settings (minimum
+  key size, key algorithm for v3+ templates, validity, hash, exportable private key, key archival,
+  enrollee-supplied subject). A certificate that sits in several stores is one asset with all its
+  stores listed. Any domain account can read this; nothing on the CA servers is touched.
+- **From the CA database:** issued certificates, read from a `certutil -view ... csv` export run on
+  each CA, since the database has no remote interface outside DCOM. Handles UTF-16 output, PEM in
+  quoted cells, `EMPTY` nulls and English display-name or schema-name headers; `field_map` covers
+  localised ones. Expired and revoked certificates are skipped by default (`include_expired`,
+  `include_revoked`). A file with no certificate column, or none that parse, fails the source
+  rather than reporting an empty CA.
+- With both configured, template OIDs in the export resolve to template names.
+- The requester of each issued certificate is recorded in `used_by` (`via: enrollment`), so
+  `principal:` selectors in `applications:` can link certificates to the machine or service
+  account that holds the key.
+- A simple bind over plain `ldap://` is refused; use `ldaps://`, `start_tls: true` or
+  `auth: kerberos`.
+- New extras: `keycensus[adcs]` (ldap3) and `keycensus[adcs-kerberos]` (ldap3 + gssapi). `all`
+  includes ldap3.
+
+**Policy**
+
+- New rule `adcs-template-weak-key-size` (medium, PCI DSS 3.7.1, SP 800-131A): a CA publishes a
+  template whose minimum key size fails the `weak-key-size` test, so it will keep issuing weak
+  certificates until the template changes.
+- `cert-long-validity` no longer fires on CA certificates. The 398-day limit is for end-entity
+  certificates, and a 10-year issuing CA is normal. This also removes the finding from CA
+  certificates found by the `pem` collector.
+
+Tested against ldap3's in-memory directory and `certutil`-shaped exports; not yet against a live
+forest. Docs: [docs/COLLECTORS.md](docs/COLLECTORS.md), plus updates to the README, POLICY,
+LINKING, COMPLIANCE, ARCHITECTURE, FAQ, SECURITY and CONTRIBUTING pages.
+
 ## 0.5.0 — 2026-09-03
 
 **Who uses this key — the last two gaps.** AWS grants, GCP IAM bindings and CipherTrust owners have

@@ -41,7 +41,7 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 | `cert-expiring-critical` | < `expiring_critical_days` (7) | high | 4.2.1 |
 | `cert-expiring-soon` | < `expiring_soon_days` (30) | medium | 4.2.1 |
 | `cert-self-signed` | subject == issuer (not Vault PKI roots) | info | 4.2.1 |
-| `cert-long-validity` | validity > `max_validity_days` (398) | info | 3.7.4 |
+| `cert-long-validity` | end-entity validity > `max_validity_days` (398); CA certificates are exempt | info | 3.7.4 |
 | `key-exportable` | extractable / exportable / imported material | medium | 3.7.3, 3.6.1 |
 | `key-software-backed` | `hardware_backed: false` with a protective purpose | low | 3.6.1, FIPS 140-3 |
 | `key-not-active` | state is disabled / pending deletion / destroyed | info | 3.7.5 |
@@ -52,6 +52,7 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 | `tls-weak-cipher` | RC4, 3DES, NULL, EXPORT, anon, MD5, RC2, IDEA | high | 4.2.1, 12.3.3 |
 | `tls-no-forward-secrecy` | non-(EC)DHE suite | low | 4.2.1 |
 | `unknown-algorithm` | collector could not identify the algorithm | info | 12.3.3 |
+| `adcs-template-weak-key-size` | an AD CS CA publishes a template whose minimum key size is weak by the `weak-key-size` test | medium | 3.7.1, SP 800-131A |
 
 (`3.x` / `4.x` / `12.x` = PCI DSS v4.0.1 requirements.)
 

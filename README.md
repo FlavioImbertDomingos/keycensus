@@ -3,7 +3,7 @@
 **A census of every cryptographic key, certificate and TLS endpoint you own — and what's wrong with them.**
 
 One command scans your HSMs (PKCS#11, CipherTrust Manager, KeySafe 5), Vault, AWS KMS, Azure Key Vault /
-Managed HSM, Google Cloud KMS, Voltage, certificate folders and TLS ports, and grades every asset against
+Managed HSM, Google Cloud KMS, Voltage, Microsoft AD CS, certificate folders and TLS ports, and grades every asset against
 **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the **NIST IR 8547** post-quantum timeline.
 
 It answers three questions, not one: **what do we have** — a standards-based CBOM (CycloneDX 1.6), an HTML
@@ -152,6 +152,12 @@ sources:
   - name: voltage
     type: voltage
     file: /exports/voltage-keys.csv
+  - name: corp-pki
+    type: adcs
+    ldap_url: ldaps://dc01.corp.example.com
+    username: svc-keycensus@corp.example.com
+    password_env: ADCS_LDAP_PASSWORD
+    exports: [/exports/corp-issuing-ca1.csv]
   - name: app-certs
     type: pem
     paths: [/etc/ssl/app]
@@ -193,6 +199,7 @@ never reads key values, only public attributes. See [SECURITY.md](SECURITY.md).
 | AES-128 (reduced quantum margin) | info | NIST IR 8547 |
 | TLS < 1.2 accepted, weak cipher suite, no forward secrecy | high / high / low | PCI 4.2.1, 12.3.3 |
 | No creation date (cryptoperiod unknowable) | info | PCI 12.3.3, 3.6.1.1 |
+| AD CS CA publishes a template that allows weak keys | medium | PCI 3.7.1; NIST 800-131A |
 
 All thresholds and severities live in one YAML: [`keycensus/data/default-policy.yml`](keycensus/data/default-policy.yml).
 Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/POLICY.md).
@@ -247,8 +254,9 @@ now, what stops working?* keycensus answers it from two kinds of evidence.
 
 **Inferred**, from the key store itself: AWS KMS grants and key-policy principals, GCP IAM bindings, Azure
 role assignments and access policies, Vault ACL policies granting `transit/<op>/<key>`, CipherTrust
-application and owner. Five of the ten collectors can do this; PKCS#11, PEM, TLS, Voltage and KeySafe 5 have
-no notion of a consumer, so those keys are declared instead.
+application and owner, the account that enrolled for an AD CS certificate. Six of the eleven collectors can
+do this; PKCS#11, PEM, TLS, Voltage and KeySafe 5 have no notion of a consumer, so those keys are declared
+instead.
 
 **Declared**, from your SBOMs — CycloneDX or SPDX 2.2/2.3 JSON:
 
@@ -338,6 +346,10 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - The CipherTrust Manager and KeySafe 5 collectors were written from the vendors' REST API references and
   tested against mocks. Field names are matched tolerantly and can be remapped; a redacted real response is
   the most useful issue you can open.
+- **The AD CS collector has not run against a live forest or CA yet.** The LDAP side is tested against an
+  in-memory directory with the real attribute names and encodings, the export side against CSVs shaped like
+  `certutil -view` output. `certutil` headers are localised, so `field_map` exists; a redacted export header
+  from a real CA is the most useful issue you can open.
 - **Voltage SecureData has no public inventory API.** The `voltage` collector consumes an export
   (JSON or CSV, from the Management Console or an internal adapter) with a configurable field map.
   If you run Voltage and can share a redacted export, that is the most useful issue you can open.
@@ -355,11 +367,13 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [x] Live integration tests against Azure Key Vault and Google Cloud KMS (OIDC, no stored secrets) *(0.3.0 — harness and fixtures; runs once the maintainer's accounts are wired up)*
 - [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
 - [x] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking *(0.5.0)*
+- [x] Microsoft AD CS: CA certificates and templates from Active Directory, issued certificates from `certutil` exports *(0.6.0, mock-verified)*
 - [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
+- [ ] AD CS validation against a live forest and CA database export
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.
 
 ## License
 
-Apache-2.0. Not affiliated with Thales, OpenText, HashiCorp or AWS.
+Apache-2.0. Not affiliated with Thales, OpenText, HashiCorp, AWS or Microsoft.
