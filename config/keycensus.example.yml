@@ -80,6 +80,20 @@ sources:
     # field_map: {name: KeyName, identity: Identity, district: District, algorithm: Algorithm,
     #             created: CreatedDate, rotated: LastRotation, state: Status}
 
+  # ---- Microsoft AD CS (CAs and templates over LDAP, issued certificates from certutil exports)
+  - name: corp-pki
+    type: adcs
+    ldap_url: ldaps://dc01.corp.example.com
+    username: svc-keycensus@corp.example.com
+    password_env: ADCS_LDAP_PASSWORD
+    # auth: kerberos                   # instead of username/password; run kinit first
+    # verify_tls: /config/corp-root-ca.pem
+    exports:                           # certutil -view ... csv, one file per CA
+      - /exports/corp-issuing-ca1.csv
+    # include_expired: false
+    # include_revoked: false
+    # ca_hardware_backed: true         # CA keys are in an HSM (LDAP cannot tell)
+
   # ---- Files on disk
   - name: app-certs
     type: pem

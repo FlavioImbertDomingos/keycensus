@@ -17,19 +17,23 @@ with names, locations and weaknesses. Treat both the config and the outputs acco
 - **Secrets never in YAML.** `*_env` / `*_file` only; `config/keycensus.yml` and `.env` are git-ignored.
 - **No key material in outputs.** Assets carry metadata only; certificate public keys are summarised
   (algorithm, size, fingerprint), not embedded.
-- **TLS verification on by default** for Vault and Voltage URLs; the `tls` collector disables
+- **TLS verification on by default** for Vault, Voltage and AD CS LDAPS URLs; the `tls` collector disables
   verification *only* for the endpoint it's inventorying (it reports the cert; it doesn't trust it).
+- **No clear-text LDAP passwords.** The AD CS collector refuses a simple bind over plain `ldap://`;
+  it needs `ldaps://`, StartTLS or Kerberos.
 - **Minimal privileges documented** per collector in `docs/COLLECTORS.md`.
 - **Unprivileged container**, non-root UID, no capabilities.
 - Dependencies: `click`, `PyYAML`, `cryptography`, `jinja2`, `requests`, `prometheus-client`,
-  plus optional `python-pkcs11`, `boto3`.
+  plus optional `python-pkcs11`, `hvac`, `boto3`, `azure-identity`, `google-auth`, `ldap3` (and
+  `gssapi` for AD CS Kerberos).
 
 ## What you should do
 
 - Restrict who can read `out/`, the `/report.html` port, and the CBOM — they are a target list.
 - Put `keycensus serve` behind your monitoring network, not on a public interface.
 - Use a Crypto User (not Crypto Officer) role for PKCS#11; a read-only Vault policy; an IAM role
-  with only the five `kms:*` read actions.
+  with only the five `kms:*` read actions; a dedicated AD account with no rights beyond domain user
+  for the AD CS LDAP bind.
 - Rotate the credentials keycensus uses like any other service credential.
 
 ## Out of scope

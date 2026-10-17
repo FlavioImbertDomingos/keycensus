@@ -35,6 +35,7 @@ def test_registry_has_all_types():
         "gcp-kms",
         "ciphertrust",
         "keysafe5",
+        "adcs",
     }
 
 

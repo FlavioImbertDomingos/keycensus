@@ -51,6 +51,7 @@ rules:
   tls-weak-cipher:           {enabled: true, severity: high}
   tls-no-forward-secrecy:    {enabled: true, severity: low}
   unknown-algorithm:         {enabled: true, severity: info}
+  adcs-template-weak-key-size: {enabled: true, severity: medium}  # AD CS template permits weak keys
   unlinked-asset:            {enabled: true, severity: info}   # only evaluated when `applications:` are declared
 
 # Sources that are hardware-backed by definition (used when a collector cannot tell).

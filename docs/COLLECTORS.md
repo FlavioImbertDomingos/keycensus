@@ -267,6 +267,112 @@ auditor disagrees.
 names are matched tolerantly (see the module docstring for the accepted names) and `field_map` covers the
 rest; a redacted real `GET keys` response in an issue is the fastest way to make the defaults right.
 
+## `adcs` — Microsoft Active Directory Certificate Services
+
+AD CS keeps its inventory in two places, and the collector reads either or both.
+
+**Active Directory, over LDAP.** The forest's configuration partition holds the Public Key
+Services container: every enterprise CA's certificate (`Enrollment Services`), the trusted roots
+(`Certification Authorities`), the `NTAuthCertificates` store, the `AIA` store, and every
+certificate template with its key-size, validity and private-key settings. Any authenticated
+domain account can read it. Nothing on the CA servers is touched.
+
+**The CA database, from an export.** The certificates a CA has issued live in its own database.
+The only remote interface to it is DCOM (ICertView), which does not work from Linux, so the CA
+exports it with `certutil` and keycensus reads the CSV, the same pattern as the `voltage` collector.
+
+```yaml
+- name: corp-pki
+  type: adcs
+
+  # Active Directory
+  ldap_url: ldaps://dc01.corp.example.com        # ldaps://, or ldap:// with start_tls: true
+  auth: simple                                   # simple | kerberos
+  username: svc-keycensus@corp.example.com       # UPN or bind DN
+  password_env: ADCS_LDAP_PASSWORD               # or password_file
+  verify_tls: /config/corp-root-ca.pem           # true | false | CA bundle path
+  # config_dn: CN=Configuration,DC=corp,DC=example,DC=com   # default: read from the rootDSE
+  include_templates: true
+
+  # CA database exports, one per CA
+  exports:
+    - /exports/corp-issuing-ca1.csv              # CA name defaults to the file name
+    - {file: /exports/ca2.csv, ca: CORP-ISSUING-CA2}
+  include_expired: false
+  include_revoked: false
+  # field_map: {certificate: "Binary Certificate"}   # only if your header is not recognised
+  ca_hardware_backed: true                       # optional, see below
+```
+
+Run on each CA to produce the export (read-only; needs *Read* on the CA, which CA administrators
+and local administrators have):
+
+```bat
+certutil -view -restrict "Disposition=20" ^
+  -out "RequestID,RequesterName,CertificateTemplate,SerialNumber,NotAfter,RawCertificate" ^
+  csv > corp-issuing-ca1.csv
+```
+
+To include revoked certificates, use `-restrict "Disposition>=20,Disposition<=21"`, add
+`Disposition,RevokedWhen` to `-out`, and set `include_revoked: true`. Schedule it with Task
+Scheduler and copy the file to wherever keycensus runs.
+
+**Permissions.** LDAP: any domain user; give keycensus its own account with no other rights.
+Simple binds are refused over plain `ldap://` because the password would cross the network in
+clear text; use `ldaps://`, `start_tls: true`, or `auth: kerberos` (run `kinit` first and install
+`keycensus[adcs-kerberos]`). The export: CA *Read*, on the CA, by whoever runs `certutil`.
+
+**What maps to what.**
+
+* CA certificates from LDAP become `certificate` assets. The same certificate usually appears in
+  several stores (a root is in `Certification Authorities` and `AIA`, an issuing CA in
+  `Enrollment Services` and `NTAuthCertificates`); it is one asset with `extra.stores` listing
+  all of them. An enterprise CA's asset is named after the CA and carries `extra.ca_host` and
+  `extra.templates`.
+* `extra.templates` has one entry per template the CA publishes: `key_algorithm` (RSA, or EC
+  from a v3+ template's CNG settings), `min_key_size` (`msPKI-Minimal-Key-Size`), `validity_days`
+  (`pKIExpirationPeriod`), `hash_algorithm`, `exportable_key` (`CT_FLAG_EXPORTABLE_KEY`),
+  `key_archival`, `enrollee_supplies_subject`, EKUs and the template OID.
+* Issued certificates from an export become `certificate` assets. Everything cryptographic
+  (algorithm, size, expiry, signature hash) comes from the certificate itself, never from the
+  other columns. `extra` keeps `ca`, `request_id`, `requester`, `template` and `revoked`.
+  When LDAP is configured too, template OIDs in the export are resolved to template names.
+* The requester (the account that enrolled and holds the private key) goes into `used_by` with
+  `via: enrollment`, so `principal:` selectors in `applications:` can match `CORP\web01$`.
+* Revoked certificates (with `include_revoked`) get state `deactivated`.
+
+**Findings this source adds.** Issued and CA certificates go through the same rules as any other
+certificate (`weak-key-size`, `deprecated-signature-hash`, expiry, `quantum-vulnerable`). One rule
+is specific to AD CS: `adcs-template-weak-key-size` fires on a CA that publishes a template whose
+minimum key size is below the strong-cryptography floor, because that CA will keep issuing weak
+certificates until the template changes. CA certificates are exempt from `cert-long-validity`,
+since a CA is meant to outlive what it issues.
+
+**What it does not read.**
+
+* The CA's own configuration in the registry (CA signing hash, CSP/KSP, whether the CA key is
+  in an HSM). LDAP cannot see it, so `hardware_backed` is unknown unless you set
+  `ca_hardware_backed`. If the CA keys are in a Luna or nShield, the `pkcs11` collector on the
+  CA's HSM partition gives you the key side.
+* Archived private keys. The export command above does not ask for them and the collector would
+  ignore them.
+* Certificates published to user or computer objects (`userCertificate`), and certificates in
+  endpoint certificate stores. Use the `pem` and `tls` collectors for what is deployed.
+* AD CS attack paths (the "ESC" family: enrollment rights, `EDITF_ATTRIBUTESUBJECTALTNAME2`,
+  web enrollment relays, ACLs on templates). The template flags above are recorded because they
+  are crypto settings, but deciding exploitability needs enrollment ACLs and CA flags keycensus
+  does not read. Use a tool built for it, such as Locksmith, PSPKIAudit or Certipy.
+
+**Honesty.** The LDAP side is tested against ldap3's in-memory directory with the real attribute
+names and encodings (`cACertificate`, `pKIExpirationPeriod`, `msPKI-*`); the export side against
+CSVs shaped like `certutil -view ... csv` output (UTF-16, PEM in quoted cells, `EMPTY` for nulls,
+English display-name headers). Neither has run against a live forest or CA yet. Headers are
+localised on non-English Windows; schema names and English display names are recognised, and
+`field_map` covers the rest. A redacted export header from a real CA in an issue is the fastest
+way to widen the defaults.
+
+Requires `pip install "keycensus[adcs]"` (ldap3) for the LDAP side. Exports need no extra.
+
 ## `pem` — files on disk
 
 ```yaml

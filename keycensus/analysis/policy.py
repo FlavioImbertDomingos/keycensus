@@ -201,7 +201,9 @@ def rule_cert_self_signed(p: Policy, a: CryptoAsset):
 
 
 def rule_cert_long_validity(p: Policy, a: CryptoAsset):
-    if a.kind == KIND_CERTIFICATE and a.created and a.expires and not a.self_signed:
+    # The limit is for end-entity certificates. CA certificates are meant to outlive what they issue.
+    if (a.kind == KIND_CERTIFICATE and a.created and a.expires and not a.self_signed
+            and not (a.extra or {}).get("is_ca")):  # fmt: skip
         validity = (a.expires - a.created).days
         limit = p.cert("max_validity_days", 398)
         if validity > limit:
@@ -273,6 +275,26 @@ def rule_unknown_algorithm(p: Policy, a: CryptoAsset):
                  ["PCI-DSS-4.0:12.3.3"], default_sev="info")  # fmt: skip
 
 
+def rule_adcs_template_weak_key_size(p: Policy, a: CryptoAsset):
+    """An AD CS CA that publishes a template allowing weak keys will keep issuing weak certificates."""
+    if a.kind != KIND_CERTIFICATE:
+        return
+    for t in (a.extra or {}).get("templates") or []:
+        size, alg = t.get("min_key_size"), t.get("key_algorithm")
+        if not size or not alg:
+            continue
+        probe = CryptoAsset(source=a.source, source_type=a.source_type, kind=KIND_KEY, name=t.get("name", "?"),
+                            native_id="template", algorithm=alg, key_size=int(size))  # fmt: skip
+        if strength.is_weak_key_size(probe):
+            yield _f(p, "adcs-template-weak-key-size", a,
+                     f"Template {t.get('name')} allows {alg}-{size} keys",
+                     f"{a.name} publishes certificate template {t.get('name')}, whose minimum key size is "
+                     f"{alg}-{size}. Every certificate enrolled from it can be below the strong-cryptography minimum.",
+                     "Raise msPKI-Minimal-Key-Size to 2048 (RSA) or move to an ECDSA P-256/P-384 template, "
+                     "supersede the old template, and re-enroll the certificates issued from it.",
+                     ["PCI-DSS-4.0:3.7.1", "NIST-SP-800-131A"])  # fmt: skip
+
+
 def rule_tls(p: Policy, a: CryptoAsset):
     if a.kind != KIND_PROTOCOL:
         return
@@ -316,6 +338,7 @@ RULES: dict[str, Rule] = {
     "quantum": rule_quantum,  # emits quantum-vulnerable(-encryption) / quantum-reduced
     "unknown-algorithm": rule_unknown_algorithm,
     "tls": rule_tls,  # emits tls-*
+    "adcs-template-weak-key-size": rule_adcs_template_weak_key_size,
 }
 
 

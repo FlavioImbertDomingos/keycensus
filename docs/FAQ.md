@@ -7,8 +7,8 @@ read-only roles/policies (examples in [COLLECTORS.md](COLLECTORS.md)) and it *ca
 
 **Does it ever see key material?**
 No. It never reads `CKA_VALUE`, never exports, never calls `GetPublicKey` on KMS, never reads Vault
-`export/` endpoints. Private keys found in PEM files are parsed only to learn their algorithm and
-size.
+`export/` endpoints, never reads AD CS archived keys. Private keys found in PEM files are parsed only
+to learn their algorithm and size.
 
 **Why is my HSM key's age "unknown"?**
 PKCS#11 has no mandatory creation timestamp. If the HSM sets `CKA_START_DATE` you get it;
@@ -31,6 +31,19 @@ concatenate trivially).
 Voltage SecureData has no public inventory API. The collector reads an export and the docs say so
 plainly. If you have a Voltage estate, export from the Management Console (or write a 20-line
 adapter that emits the canonical JSON), point `file:` or `url:` at it, and it just works.
+
+**Does the AD CS collector find ESC1-style misconfigurations?**
+No, and it does not try to. It inventories the CAs, their templates' crypto settings (minimum key
+size, validity, exportable private keys) and the certificates the CAs issued, and grades them like
+any other certificate. Whether a template is *exploitable* depends on enrollment ACLs and CA flags
+that keycensus does not read. Run Locksmith, PSPKIAudit or Certipy for that; the two answer
+different questions and work well side by side.
+
+**Why does AD CS need a `certutil` export instead of an API?**
+The CA database is only reachable remotely over DCOM (ICertView), which does not work from a Linux
+container. The CA certificates and templates come straight from LDAP; for the issued certificates,
+a scheduled `certutil -view ... csv` on each CA is the dependable path. The exact command is in
+[COLLECTORS.md](COLLECTORS.md#adcs--microsoft-active-directory-certificate-services).
 
 **Can I use it without Docker?**
 `pip install "keycensus[all]"` and `keycensus scan -c config.yml`. Docker is only for the demo
@@ -58,5 +71,5 @@ commercial tools add network-wide passive discovery, code scanning, agent-based 
 inventory, and workflow. keycensus is the open, scriptable, inspectable core you can run today.
 
 **License / trademarks?**
-Apache-2.0. Thales, Luna, Entrust, nShield, OpenText, Voltage, HashiCorp, Vault and AWS are
-trademarks of their owners; no affiliation.
+Apache-2.0. Thales, Luna, Entrust, nShield, OpenText, Voltage, HashiCorp, Vault, AWS, Microsoft and
+Active Directory are trademarks of their owners; no affiliation.
