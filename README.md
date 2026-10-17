@@ -252,6 +252,8 @@ has the walkthrough.
 The question an incident actually starts with is not *is this key weak* — it is *if I revoke this key right
 now, what stops working?* keycensus answers it from two kinds of evidence.
 
+<img width="1233" alt="Who uses this key: inferred evidence from key stores (including AD CS), declared evidence from SBOMs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
+
 **Inferred**, from the key store itself: AWS KMS grants and key-policy principals, GCP IAM bindings, Azure
 role assignments and access policies, Vault ACL policies granting `transit/<op>/<key>`, CipherTrust
 application and owner, the account that enrolled for an AD CS certificate. Six of the eleven collectors can
