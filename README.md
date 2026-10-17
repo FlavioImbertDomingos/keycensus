@@ -11,7 +11,7 @@ report a human can read, Prometheus metrics. **What just got worse** — every r
 so a key that became exportable pages someone instead of waiting for an audit. **What breaks if this key is
 revoked** — your SBOMs joined to the keys each application actually uses.
 
-<img width="1233" height="810" alt="keycensus alerting architecture: collect, inventory and grade, diff and classify, publish and alert" src="https://github.com/user-attachments/assets/78b0d46a-6581-4f04-840c-21813b595f80" />
+<img width="1233" alt="Who uses this key: inferred evidence from key stores (including AD CS), declared evidence from SBOMs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
 
 
 <img width="791" height="795" alt="keycensus HTML report: findings ranked by severity, each naming the asset, the rule and the PCI DSS / NIST control it maps to" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
@@ -251,8 +251,6 @@ has the walkthrough.
 
 The question an incident actually starts with is not *is this key weak* — it is *if I revoke this key right
 now, what stops working?* keycensus answers it from two kinds of evidence.
-
-<img width="1233" alt="Who uses this key: inferred evidence from key stores (including AD CS), declared evidence from SBOMs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
 
 **Inferred**, from the key store itself: AWS KMS grants and key-policy principals, GCP IAM bindings, Azure
 role assignments and access policies, Vault ACL policies granting `transit/<op>/<key>`, CipherTrust
