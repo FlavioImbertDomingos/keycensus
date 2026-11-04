@@ -1,0 +1,74 @@
+# CloudFormation: the read-only role keycensus assumes in every member account.
+#
+# Deploy to the whole organization with a service-managed StackSet:
+#
+#   aws cloudformation create-stack-set --stack-set-name keycensus-member-role \
+#     --template-body file://keycensus-member-role.yaml \
+#     --parameters ParameterKey=ScannerPrincipalArn,ParameterValue=arn:aws:iam::111111111111:role/keycensus-scanner \
+#     --permission-model SERVICE_MANAGED --auto-deployment Enabled=true,RetainStacksOnAccountRemoval=false \
+#     --capabilities CAPABILITY_NAMED_IAM
+#   aws cloudformation create-stack-instances --stack-set-name keycensus-member-role \
+#     --deployment-targets OrganizationalUnitIds=r-xxxx --regions us-east-1
+#
+# StackSets do not deploy to the management account itself; keycensus scans that one with its own
+# credentials (attach keycensus-scanner-policy.json there).
+AWSTemplateFormatVersion: "2010-09-09"
+Description: keycensus read-only KMS inventory role (no key material, no decrypt, no sign)
+
+Parameters:
+  ScannerPrincipalArn:
+    Type: String
+    Description: ARN of the role or user keycensus runs as (in the management or delegated-admin account)
+  RoleName:
+    Type: String
+    Default: KeycensusReadOnly
+    Description: Must match member_role in the aws-kms source
+  ExternalId:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Optional sts:ExternalId; set the same value in external_id_env on the source
+
+Conditions:
+  UseExternalId: !Not [!Equals [!Ref ExternalId, ""]]
+
+Resources:
+  KeycensusReadOnly:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { AWS: !Ref ScannerPrincipalArn }
+            Action: sts:AssumeRole
+            Condition: !If
+              - UseExternalId
+              - StringEquals: { "sts:ExternalId": !Ref ExternalId }
+              - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: keycensus-kms-inventory
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: KmsInventory
+                Effect: Allow
+                Action:
+                  - kms:ListKeys
+                  - kms:ListAliases
+                  - kms:DescribeKey
+                  - kms:GetKeyRotationStatus
+                  - kms:ListResourceTags
+                  - kms:ListGrants          # include_consumers
+                  - kms:GetKeyPolicy        # include_consumers
+                Resource: "*"
+              - Sid: EnabledRegions
+                Effect: Allow
+                Action: ec2:DescribeRegions # regions: all
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt KeycensusReadOnly.Arn

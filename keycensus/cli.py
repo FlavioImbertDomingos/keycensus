@@ -1,9 +1,12 @@
-"""Command line: scan | link | diff | changes | notify | upload | serve | rules | collectors | controls | validate."""
+"""Command line: scan | link | diff | changes | notify | upload | serve | rules | collectors | controls | validate |
+keygen | verify | audit."""
 
 from __future__ import annotations
 
 import logging
+import os
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -76,20 +79,28 @@ def scan(
 ):
     """Collect from every source, apply the policy, write reports."""
     _setup_logging(verbose)
+    from .audit import AuditLog, file_hashes, policy_sha256
     from .scanner import scan as run_scan
 
     try:
         config = load(config_path)
         policy = Policy.load(policy_path or config.policy)
-    except (ConfigError, FileNotFoundError) as exc:
+        audit = AuditLog.from_config(config.audit)
+        signing_key = _signing_key(config)
+    except (ConfigError, FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
+    started = time.perf_counter()
+    if audit:
+        audit.scan_started(config, policy_sha256(policy_path or config.policy))
     inv = run_scan(config, policy)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
     for fmt in formats:
         render, filename = FORMATS[fmt]
         (out / filename).write_text(render(inv))
+        written.append(filename)
         click.echo(f"wrote {out / filename}", err=True)
 
     s = inv.summary()
@@ -127,6 +138,7 @@ def scan(
             _json.dumps({"summary": summarize(classified), "changes": [c.to_dict() for c in classified]},
                         indent=2, default=str) + "\n"
         )  # fmt: skip
+        written += ["diff.json", "diff.md", "changes.json"]
         click.echo(f"wrote {out / 'diff.json'}, diff.md and changes.json", err=True)
         click.echo("")
         click.echo(render_text(d).rstrip())
@@ -136,7 +148,7 @@ def scan(
             click.echo(render_changes(classified).rstrip())
 
         if notify_dry_run or (notify if notify is not None else config.notifications is not None):
-            _notify(config, classified, dry_run=notify_dry_run, context={"source": "scan"})
+            _notify(config, classified, dry_run=notify_dry_run, context={"source": "scan"}, audit=audit)
 
         worst_new = d.worst_new_severity()
         if fail_on_new and worst_new and SEV_RANK[worst_new] <= SEV_RANK[fail_on_new]:
@@ -146,6 +158,16 @@ def scan(
             n = sum(1 for c in classified if c.urgency == PAGE)
             click.echo(f"\nfailing: {n} page-worthy change(s) since the baseline", err=True)
             rc = rc or 5
+
+    if signing_key is not None:
+        from .signing import sign_dir
+
+        signed = sign_dir(out, written, signing_key, _manifest_meta(config, policy_path, inv))
+        click.echo(f"signed {out / 'manifest.json'} ({signed['files']} files, key {signed['key']})", err=True)
+        if audit:
+            audit.write("scan.signed", **signed)
+    if audit:
+        audit.scan_finished(inv, time.perf_counter() - started, file_hashes({n: out / n for n in written}))
 
     if fail_on:
         worst = min((SEV_RANK[f.severity] for f in inv.findings), default=99)
@@ -161,22 +183,32 @@ def scan(
 @main.command()
 @click.option("-c", "--config", "config_path", required=True, type=click.Path(exists=True))
 @click.option("-p", "--policy", "policy_path", default=None)
-@click.option("--port", default=9742, show_default=True)
-@click.option("--listen", default="0.0.0.0", show_default=True)
+@click.option("--port", default=None, type=int, help="Default: serve.port, else 9742.")
+@click.option("--listen", default=None, help="Default: serve.listen, else $KEYCENSUS_LISTEN, else 127.0.0.1.")
+@click.option("--tls-cert", default=None, type=click.Path(exists=True), help="Serve HTTPS (with --tls-key).")
+@click.option("--tls-key", default=None, type=click.Path(exists=True))
+@click.option("--insecure-no-auth", is_flag=True,
+              help="Serve the report and CBOM without a token on a non-loopback address. Only behind a proxy "
+                   "that does its own authentication.")  # fmt: skip
 @click.option("--interval", default="15m", show_default=True, help="Rescan interval, e.g. 30s, 15m, 6h.")
 @click.option("--no-per-asset-metrics", is_flag=True, help="Only aggregate metrics (huge fleets).")
 @click.option("-v", "--verbose", is_flag=True)
-def serve(config_path, policy_path, port, listen, interval, no_per_asset_metrics, verbose):
-    """Rescan periodically; serve /metrics, /report.html, /cbom.json, /inventory.json."""
+def serve(config_path, policy_path, port, listen, tls_cert, tls_key, insecure_no_auth, interval,
+          no_per_asset_metrics, verbose):  # fmt: skip
+    """Rescan periodically; serve /metrics, and /report.html, /cbom.json, /inventory.json behind a token."""
     _setup_logging(verbose)
+    from .serve import ServeSettings
     from .serve import serve as run_serve
 
     try:
         config = load(config_path)
         policy = Policy.load(policy_path or config.policy)
-    except (ConfigError, FileNotFoundError) as exc:
+        settings = ServeSettings.from_config(config.serve, listen=listen, port=port, tls_cert=tls_cert,
+                                             tls_key=tls_key, insecure_no_auth=insecure_no_auth)  # fmt: skip
+        signing_key = _signing_key(config)
+    except (ConfigError, FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
-    run_serve(config, policy, port, _seconds(interval), listen, not no_per_asset_metrics)
+    run_serve(config, policy, settings, _seconds(interval), not no_per_asset_metrics, policy_path, signing_key)
 
 
 @main.command()
@@ -218,8 +250,28 @@ def validate(config_path):
     click.echo(f"policy: {config.policy}")
 
 
-def _notify(cfg, classified, dry_run: bool, context: dict | None = None):
+def _signing_key(config):
+    if not config.signing:
+        return None
+    from .signing import SigningError, load_private_key
+
+    try:
+        return load_private_key(config.signing)
+    except (SigningError, Exception) as exc:  # noqa: BLE001 - surface any key problem before scanning
+        raise ConfigError(str(exc)) from exc
+
+
+def _manifest_meta(config, policy_path, inv) -> dict:
+    from .audit import policy_sha256
+    from .model import iso
+
+    return {"generated_at": iso(inv.generated_at), "config_sha256": config.config_sha256,
+            "policy_sha256": policy_sha256(policy_path or config.policy)}  # fmt: skip
+
+
+def _notify(cfg, classified, dry_run: bool, context: dict | None = None, audit=None):
     """Send classified changes to the webhook. Shared by `scan` and `diff`."""
+    from .audit import webhook_sent
     from .notify import NotifyConfig, NotifyError, render_preview, send
 
     try:
@@ -231,6 +283,7 @@ def _notify(cfg, classified, dry_run: bool, context: dict | None = None):
             "--notify needs a `notifications:` block in the config (and -c pointing at it). See docs/ALERTING.md."
         )
     result = send(classified, ncfg, context=context or {}, dry_run=dry_run)
+    webhook_sent(audit, ncfg, result, len(classified))
     if dry_run:
         click.echo("")
         click.echo(f"webhook payload ({ncfg.format}, would POST to ${ncfg.url_env}):", err=True)
@@ -456,3 +509,65 @@ def _seconds(text: str) -> float:
 
 if __name__ == "__main__":
     main()
+
+
+@main.command()
+@click.option("--out", "prefix", default="keycensus-signing", show_default=True,
+              help="Writes PREFIX.pem (private, mode 0600) and PREFIX.pub.pem.")  # fmt: skip
+def keygen(prefix):
+    """Create an Ed25519 key pair for signed scan records."""
+    from .signing import SigningError
+    from .signing import keygen as make_keys
+
+    try:
+        key_path, pub_path = make_keys(prefix)
+    except SigningError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"private key: {key_path}  (point signing.private_key_file at it; keep it from everyone else)")
+    click.echo(f"public key:  {pub_path}  (give this to whoever verifies: keycensus verify OUT --public-key ...)")
+
+
+@main.command()
+@click.argument("output_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--public-key", "public_key", required=True, type=click.Path(exists=True))
+def verify(output_dir, public_key):
+    """Check a signed scan folder: signature, then every file's hash. Exit 1 if anything is off."""
+    from .signing import SigningError, load_public_key, verify_dir
+
+    try:
+        ok, lines = verify_dir(output_dir, load_public_key(public_key))
+    except SigningError as exc:
+        raise click.ClickException(str(exc)) from exc
+    for line in lines:
+        click.echo(line)
+    if not ok:
+        click.echo("\nverification FAILED", err=True)
+        sys.exit(1)
+    click.echo("\nverified")
+
+
+@main.group()
+def audit():
+    """The hash-chained audit log."""
+
+
+@audit.command("verify")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--hmac-key-env", default=None, help="Env var holding the HMAC key, if the log was written with one.")
+@click.option("--hmac-key-file", default=None, type=click.Path(exists=True))
+def audit_verify(path, hmac_key_env, hmac_key_file):
+    """Check every link in the chain. Exit 1 at the first broken one."""
+    from .audit import verify as verify_chain
+
+    key = None
+    if hmac_key_file:
+        key = Path(hmac_key_file).read_text().strip().encode()
+    elif hmac_key_env:
+        val = os.environ.get(hmac_key_env)
+        if not val:
+            raise click.ClickException(f"env var {hmac_key_env} is not set")
+        key = val.encode()
+    ok, n, msg = verify_chain(path, key)
+    click.echo(msg)
+    if not ok:
+        sys.exit(1)

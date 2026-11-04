@@ -6,8 +6,10 @@ Most valuable contributions, in order:
    Voltage Management Console export, a KMS `DescribeKey` from a CloudHSM key store, the header
    row and one redacted row of a `certutil -view ... csv` export from an AD CS CA (especially a
    non-English one). These let us lock down field mappings against reality.
-2. **New collectors**: Azure Key Vault / Managed HSM, Google Cloud KMS, CipherTrust Manager,
-   KeySafe 5, Kubernetes secrets, JKS/PKCS#12 files.
+   Also useful: the `keycensus scan` output for a TLS endpoint behind your load balancer or CDN that
+   negotiates X25519MLKEM768, and for an SSH server offering `mlkem768x25519-sha256`.
+2. **New collectors** (see the README roadmap): Kubernetes secrets and cert-manager, JKS / PKCS#12
+   keystores, SSH host and user keys on disk, Certificate Transparency logs, LDAP StartTLS on 389.
 3. Rules you wish existed, with the control they map to.
 
 ## Dev setup

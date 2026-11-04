@@ -1,0 +1,24 @@
+{
+  "Name": "keycensus inventory reader",
+  "IsCustom": true,
+  "Description": "Lists Key Vaults and Managed HSMs, reads key and certificate metadata and public keys, reads who can use them. Cannot read secrets, private keys, or use any key.",
+  "Actions": [
+    "Microsoft.Resources/subscriptions/read",
+    "Microsoft.Resources/subscriptions/resources/read",
+    "Microsoft.Resources/subscriptions/resourceGroups/read",
+    "Microsoft.KeyVault/vaults/read",
+    "Microsoft.KeyVault/managedHSMs/read",
+    "Microsoft.Authorization/roleAssignments/read",
+    "Microsoft.Authorization/roleDefinitions/read"
+  ],
+  "NotActions": [],
+  "DataActions": [
+    "Microsoft.KeyVault/vaults/keys/read",
+    "Microsoft.KeyVault/vaults/certificates/read",
+    "Microsoft.KeyVault/vaults/keyrotationpolicies/read"
+  ],
+  "NotDataActions": [],
+  "AssignableScopes": [
+    "/providers/Microsoft.Management/managementGroups/REPLACE-WITH-YOUR-MANAGEMENT-GROUP"
+  ]
+}

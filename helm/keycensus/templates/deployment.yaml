@@ -49,6 +49,19 @@ spec:
               value: {{ .Values.mode.serve.interval | quote }}
             - name: KEYCENSUS_PORT
               value: {{ .Values.service.port | quote }}
+            {{- with .Values.mode.serve.auth }}
+            {{- if or .existingTokenSecret .generateToken }}
+            - name: KEYCENSUS_SERVE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingTokenSecret | default (printf "%s-serve-token" (include "keycensus.fullname" $)) }}
+                  key: {{ .tokenSecretKey }}
+            {{- end }}
+            {{- if .allowUnauthenticated }}
+            - name: KEYCENSUS_ALLOW_UNAUTHENTICATED
+              value: "1"
+            {{- end }}
+            {{- end }}
           {{- $envFrom := include "keycensus.envFrom" . }}
           {{- if $envFrom }}
           envFrom:
@@ -66,7 +79,7 @@ spec:
             httpGet: { path: /healthz, port: http }
             periodSeconds: 30
           livenessProbe:
-            httpGet: { path: /, port: http }
+            httpGet: { path: /livez, port: http }
             periodSeconds: 60
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

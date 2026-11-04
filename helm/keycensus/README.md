@@ -55,6 +55,18 @@ serviceAccount:
   `extraVolumeMounts`. Network HSMs must be reachable from the cluster (NTLS 1792 for Luna, 9004 for nShield).
 * **Cloud collectors** use workload identity when `auth: default`: annotate the service account for AKS / GKE / EKS
   and grant the read-only roles listed in `docs/COLLECTORS.md`.
+* **`network` sources scan from the pod.** The pod needs egress to the ranges and ports you list; a
+  NetworkPolicy that only allows the sources' APIs will make every port look closed. Tell whoever watches
+  your IDS before the CronJob's first run.
+* **Cloud discovery** (`organization: true`, `discover: true`) runs with the same workload identity; give it
+  the organization-wide read roles listed in `docs/COLLECTORS.md`, not an administrator role.
+* **The report and CBOM need a token.** The chart creates `<release>-serve-token` with a random token
+  (kept across upgrades) and passes it as `$KEYCENSUS_SERVE_TOKEN`; `NOTES.txt` prints how to read it.
+  Bring your own with `mode.serve.auth.existingTokenSecret`, or add named tokens under `config.serve.auth`.
+  `/metrics`, `/healthz` and `/livez` stay public, so probes and the ServiceMonitor need nothing.
+* **Audit and signing**: set `config.audit` and `config.signing` (they pass through to the config file).
+  Put the audit log on the scan PVC or ship it off the pod, and mount the signing key from a Secret
+  with `extraVolumes`.
 * **Secrets** never go in values. `existingSecret` is mounted with `envFrom`; the keys are the env var names your
   sources reference (`token_env`, `pin_env`, ...). Dependency-Track's key goes in its own Secret (`DTRACK_API_KEY`).
 * The container runs as UID 10001 with a read-only root filesystem; `/out` and `/tmp` are writable volumes.

@@ -83,7 +83,7 @@ Nothing is faked in the *code path* — only the *backends* are stand-ins:
 | `fake-aws` | moto — an AWS API mock so faithful that real `boto3` doesn't notice | rotation disabled, disabled key, quantum-vulnerable signing keys |
 | `voltage` | A mock inventory export in the canonical Voltage shape | rotation overdue (800 days), 3DES, software-only keys |
 | `app-certs` | A folder of deliberately imperfect PEM files | expired cert, expiring-in-10-days, RSA-1024, orphan private key |
-| `edges` | The mock's HTTPS port, scanned like any TLS endpoint | self-signed, expiring cert |
+| `edges` | The mock's HTTPS port, scanned like any TLS endpoint | self-signed, expiring cert, classical key exchange (no X25519MLKEM768) |
 | *applications* | Two CycloneDX SBOMs (`demo/sboms/`) plus a declared app, linked to the keys above via selectors, KMS grants and Vault policies | the Applications table, `unlinked-asset` findings for orphan keys |
 
 ### What the output looks like
@@ -99,7 +99,7 @@ sources:  6/6 ok
   - voltage (voltage): 7 assets
   - app-certs (pem): 8 assets
   - edges (tls): 2 assets
-findings: critical=1, high=5, medium=14, low=25, info=19
+findings: critical=1, high=5, medium=15, low=25, info=19
 
   [critical] legacy.batch — Certificate has EXPIRED
   [high    ] old.reporting — RSA-1024 is below the strong-cryptography minimum
@@ -186,7 +186,13 @@ Then either run it on a schedule (`keycensus scan ... --fail-on high` in CI / cr
 running (`keycensus serve -c ... --interval 6h`) and point Prometheus at `:9742/metrics`.
 
 **Read-only, always.** Every collector uses list/describe/read calls only. The PKCS#11 collector
-never reads key values, only public attributes. See [SECURITY.md](SECURITY.md).
+never reads key values, only public attributes. Least-privilege policies for every source are in
+[`deploy/`](deploy/README.md) and [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
+
+**Safe to leave running.** `serve` needs a token for the report and CBOM, can serve HTTPS, and with
+`audit:` and `signing:` keeps a hash-chained log of who read what and signs every scan so an assessor
+can verify it was not changed. Credentials can come from Vault, AWS Secrets Manager, Azure Key Vault or
+GCP Secret Manager. See [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -228,11 +234,15 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class, **and change counters** |
 | `diff.json` / `diff.md` | Change review, CI gates | With `--baseline previous/inventory.json`: assets added / removed / changed, findings new / resolved, sources broken |
 | `changes.json` | Alerting | Each change classified into a kind with an urgency: what should page, what waits for the weekly digest |
+| `manifest.json` + `.sig` | Assessors, evidence | With `signing:`: the SHA-256 of every output and an Ed25519 signature over them; `keycensus verify` checks it |
+| `audit.jsonl` | Security, assessors | With `audit:`: every scan, config change, report read (by token name), refused request and webhook, hash-chained |
 | Applications (in all of the above) | Incident response, ownership | `applications:` + SBOMs → which app uses which key; CBOM gets `application` components with `dependsOn` → keys; `unlinked-asset` findings for orphans |
 
 ```bash
 keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-new high   # exit 3 on new high+ findings
 keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-page       # exit 5 if the estate got worse
+keycensus keygen --out keycensus-signing && keycensus verify out --public-key keycensus-signing.pub.pem   # signed scans
+keycensus audit verify /var/log/keycensus/audit.jsonl                                       # check the audit chain
 keycensus diff last/inventory.json out/inventory.json -f markdown                           # or text / json
 keycensus link -c keycensus.yml -i out/inventory.json --sbom sboms/payments-api.cdx.json -o out   # SBOM ↔ CBOM
 keycensus upload dtrack --url https://dtrack.corp --project hsm-estate --version 2026-09-02 --cbom out/cbom.json
@@ -340,6 +350,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/POLICY.md](docs/POLICY.md) — every rule, how it decides, how to tune it
 - [docs/CBOM.md](docs/CBOM.md) — how assets map to CycloneDX, and how to load the CBOM elsewhere
 - [docs/COMPLIANCE.md](docs/COMPLIANCE.md) — the PCI DSS / NIST controls and what evidence keycensus gives you
+- [docs/PERMISSIONS.md](docs/PERMISSIONS.md) and [deploy/](deploy/README.md) — least privilege per source, secret stores, `serve` tokens
 - [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) — the post-quantum dates (FIPS 203-205, PCI 12.3.3, G7, EO 14412, IR 8547 final) and what keycensus gives you for each
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design, data model, adding collectors and rules
 - [docs/FAQ.md](docs/FAQ.md)
@@ -393,12 +404,14 @@ Next, in order. The first three are the next three releases.
 
 ### 1. Safe to leave running
 
-- [ ] `serve` binds to `127.0.0.1` by default, requires a token (OIDC for enterprise) for the report and CBOM, and supports TLS; `/metrics` can stay open
-- [ ] Signed releases: cosign signatures, build provenance and an SBOM for the keycensus image and packages
-- [ ] Least-privilege kits: ready-made IAM policies, Azure role definitions, a Vault policy and an AD service-account checklist
-- [ ] Credentials from Vault, AWS Secrets Manager or Azure Key Vault, not only environment variables and files
-- [ ] Audit log as JSON lines, each entry carrying the previous entry's hash: every scan (sources, credential identity, results), every report or CBOM read in `serve`, every config or policy change, every webhook sent
-- [ ] Signed scan records: each CBOM and report hashed and signed, so an assessor can verify it existed on that date unchanged (PCI DSS 12.3.3 evidence)
+- [x] `serve` binds to `127.0.0.1` by default, requires a token for the report and CBOM, and supports TLS; `/metrics` stays open *(0.8.0)*
+- [x] Signed releases: cosign signatures, build provenance and an SBOM for the keycensus image *(0.8.0; first signed image on the next push to main)*
+- [x] Least-privilege kits: IAM policies and a StackSet role, Azure and GCP custom roles, a Vault policy and an AD service-account checklist *(0.8.0)*
+- [x] Credentials from Vault, AWS Secrets Manager, Azure Key Vault or GCP Secret Manager *(0.8.0)*
+- [x] Hash-chained audit log: scans with credential references, config and policy changes, report and CBOM reads by token name, refused requests, webhooks *(0.8.0)*
+- [x] Signed scan records: Ed25519-signed manifest of every output, checked with `keycensus verify` *(0.8.0)*
+- [ ] OIDC login for `serve` (today: tokens, or an authenticating proxy in front with `allow_unauthenticated`)
+- [ ] RFC 3161 or Sigstore timestamps on scan manifests, so the signing time does not rest on the scanner's clock
 
 ### 2. Easy to start
 

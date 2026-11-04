@@ -22,6 +22,10 @@ config:
     - name: example-certs
       type: pem
       paths: [/etc/ssl/certs]
+  # Any other top-level block is passed through as-is: notifications, applications, secrets,
+  # serve (more tokens, TLS), audit, signing. For example:
+  # audit: {path: /out/audit.jsonl, hmac_key_env: KEYCENSUS_AUDIT_KEY}
+  # signing: {private_key_file: /signing/keycensus-signing.pem}
 existingConfigMap: ""
 
 # Optional custom policy YAML (rendered as policy.yml next to the config, referenced as /config/policy.yml).
@@ -45,6 +49,13 @@ mode:
     interval: 15m
     perAssetMetrics: true
     replicas: 1
+    # The report and CBOM need a token (the chart passes it as $KEYCENSUS_SERVE_TOKEN).
+    # /metrics, /healthz and /livez stay public, so probes and the ServiceMonitor need nothing.
+    auth:
+      generateToken: true         # create <release>-serve-token with a random token, kept across upgrades
+      existingTokenSecret: ""     # or use your own Secret ...
+      tokenSecretKey: KEYCENSUS_SERVE_TOKEN   # ... and this key in it
+      allowUnauthenticated: false # only behind an ingress or proxy that authenticates
   scan:
     enabled: false
     schedule: "0 2 * * *"       # daily at 02:00

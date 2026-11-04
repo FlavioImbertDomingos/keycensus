@@ -5,7 +5,8 @@ An inventory is only interesting the second time you take it. Diff mode compares
 
 * **What appeared / disappeared** — new keys, deleted certificates, a source that vanished.
 * **What changed on the things that stayed** — state, expiry, last rotation, rotation setting,
-  algorithm/size/curve, exportability, hardware backing, purposes, TLS version, fingerprint, location.
+  algorithm/size/curve, exportability, hardware backing, purposes, TLS version, legacy TLS versions
+  accepted, key exchange (TLS 1.3 group or SSH kex), fingerprint, location.
 * **Which findings are new and which were resolved** — matched by `(rule, asset)`.
 * **Which sources broke or got fixed** — a collector that errored this time but not last time.
 

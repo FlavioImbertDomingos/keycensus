@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListOrganizationAccounts",
+      "Effect": "Allow",
+      "Action": "organizations:ListAccounts",
+      "Resource": "*"
+    },
+    {
+      "Sid": "AssumeMemberRole",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/KeycensusReadOnly"
+    },
+    {
+      "Sid": "KmsInventoryInThisAccount",
+      "Effect": "Allow",
+      "Action": [
+        "kms:ListKeys",
+        "kms:ListAliases",
+        "kms:DescribeKey",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:ListGrants",
+        "kms:GetKeyPolicy",
+        "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OptionalSecretsForKeycensusOnly",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:*:*:secret:keycensus/*"
+    }
+  ]
+}

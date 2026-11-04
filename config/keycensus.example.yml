@@ -1,7 +1,34 @@
 # keycensus configuration -- copy to config/keycensus.yml and edit.
-# Secrets are referenced by env var (`*_env`) or file (`*_file`); never inline.
+# Secrets are referenced by env var (`*_env`), file (`*_file`) or a secret store
+# (`*_vault`, `*_aws_secret`, `*_azure_secret`, `*_gcp_secret`); never inline.
 
 policy: default                       # or: /config/my-policy.yml
+
+# ---- Where *_vault / *_aws_secret / ... references are fetched from (docs/PERMISSIONS.md)
+# secrets:
+#   vault: {url: https://vault.example.com:8200, auth: kubernetes, role: keycensus}
+#   aws: {region: us-east-1}
+
+# ---- keycensus serve: the report and CBOM need a token (docs/PERMISSIONS.md)
+serve:
+  listen: 127.0.0.1                   # anything else needs a token or allow_unauthenticated: true
+  port: 9742
+  auth:
+    tokens:
+      - {name: grafana, token_env: KC_TOKEN_GRAFANA}
+      # - {name: auditor, token_vault: secret/data/keycensus#auditor_token}
+    # public_paths: [/metrics, /healthz, /livez]   # the default
+  # tls: {cert_file: /etc/keycensus/tls.crt, key_file: /etc/keycensus/tls.key}
+
+# ---- Hash-chained audit log: scans, config changes, report reads, webhooks (SECURITY.md)
+# audit:
+#   path: /var/log/keycensus/audit.jsonl
+#   hmac_key_env: KEYCENSUS_AUDIT_KEY
+
+# ---- Signed scan records: manifest.json + Ed25519 signature next to the outputs
+#      (keycensus keygen --out keycensus-signing; keycensus verify out --public-key ...)
+# signing:
+#   private_key_file: /run/secrets/keycensus-signing.pem
 
 sources:
   # ---- HSMs over PKCS#11 (run keycensus where the vendor client library is installed)
@@ -69,6 +96,7 @@ sources:
     url: https://ctm.example.com
     username: keycensus
     password_env: CTM_PASSWORD
+    # password_vault: secret/data/keycensus#ctm_password   # or from a secret store
     # domain: payments
     hardware_backed: true            # HSM-anchored domain
 
