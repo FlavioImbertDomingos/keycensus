@@ -55,6 +55,13 @@ rules:
   ssh-weak-algorithm:        {enabled: true, severity: high}
   unknown-algorithm:         {enabled: true, severity: info}
   adcs-template-weak-key-size: {enabled: true, severity: medium}  # AD CS template permits weak keys
+  hardcoded-private-key:     {enabled: true, severity: critical} # code: a private key or keystore in the tree
+  weak-hash:                 {enabled: true, severity: medium}   # code: MD5 / SHA-1 calls
+  weak-cipher-mode:          {enabled: true, severity: high}     # code: ECB (incl. Java's Cipher.getInstance("AES"))
+  keystore-weak-protection:  {enabled: true, severity: medium}   # JKS/JCEKS, legacy PKCS#12, default passwords
+  ct-unexpected-issuer:      {enabled: true, severity: high}     # CT: a public certificate from a CA you did not list
+  ldap-cleartext:            {enabled: true, severity: medium}   # network: LDAP on 389 that refuses StartTLS
+  key-reuse-on-renewal:      {enabled: true, severity: low}      # cert-manager rotationPolicy: Never
   unlinked-asset:            {enabled: true, severity: info}   # only evaluated when `applications:` are declared
 
 # Sources that are hardware-backed by definition (used when a collector cannot tell).

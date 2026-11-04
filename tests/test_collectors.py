@@ -38,6 +38,10 @@ def test_registry_has_all_types():
         "adcs",
         "ssh",
         "network",
+        "ct",
+        "files",
+        "kubernetes",
+        "code",
     }
 
 

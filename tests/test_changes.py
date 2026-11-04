@@ -367,3 +367,19 @@ def test_dry_run_builds_the_payload_without_sending(monkeypatch):
     result = send(sample_changes(), NotifyConfig.from_dict({}), dry_run=True)
     assert result["sent"] is False
     assert result["payload"]["changes"][0]["kind"] == "key-became-exportable"
+
+
+def test_expired_certificates_and_fixed_code_retire_quietly():
+    from keycensus.changes import PAGE, classify
+    from keycensus.diff import Diff
+
+    gone = [
+        {"id": "a", "name": "old.example.com", "kind": "certificate", "state": "active",
+         "expires": "2020-01-01T00:00:00Z", "source": "ct"},
+        {"id": "b", "name": "MD5 in repo", "kind": "algorithm", "state": "active", "source": "code"},
+        {"id": "c", "name": "live.example.com", "kind": "certificate", "state": "active",
+         "expires": "2099-01-01T00:00:00Z", "source": "ct"},
+    ]  # fmt: skip
+    by = {c.asset_id: c for c in classify(Diff(before_generated_at=None, after_generated_at=None, removed=gone))}
+    assert by["a"].kind == "asset-retired" and by["b"].kind == "asset-retired"
+    assert by["c"].kind == "asset-removed" and by["c"].urgency == PAGE

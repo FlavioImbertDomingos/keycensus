@@ -230,10 +230,11 @@ def _read_reply(sock: socket.socket) -> bytes:
 
 
 def probe(host: str, port: int, groups: list[int], share_groups: list[int], timeout: float = 5.0,
-          server_name: str | None = None) -> Reply:  # fmt: skip
+          server_name: str | None = None, starttls: str | None = None) -> Reply:  # fmt: skip
+    from .starttls import open_socket  # noqa: PLC0415
+
     try:
-        with socket.create_connection((host, port), timeout=timeout) as sock:
-            sock.settimeout(timeout)
+        with open_socket(host, port, timeout, starttls) as sock:
             sock.sendall(client_hello(server_name, groups, share_groups))
             return parse_server_reply(_read_reply(sock))
     except OSError as exc:
@@ -269,10 +270,11 @@ def sni_for(host: str) -> str | None:
         return host
 
 
-def assess(host: str, port: int, timeout: float = 5.0, server_name: str | None = None) -> KeyExchange:
+def assess(host: str, port: int, timeout: float = 5.0, server_name: str | None = None,
+           starttls: str | None = None) -> KeyExchange:  # fmt: skip
     sni = server_name if server_name is not None else sni_for(host)
     out = KeyExchange()
-    first = probe(host, port, PREFERENCE_OFFER, [0x11EC, 0x001D], timeout, sni)
+    first = probe(host, port, PREFERENCE_OFFER, [0x11EC, 0x001D], timeout, sni, starttls)
     if first.outcome == "tls12":
         out.tls13, out.detail = False, "TLS 1.2 only: key exchange group not probed"
         return out
@@ -285,7 +287,7 @@ def assess(host: str, port: int, timeout: float = 5.0, server_name: str | None =
     for _ in range(len(SUPPORT_OFFER)):
         if not remaining:
             break
-        reply = probe(host, port, remaining, [remaining[0]], timeout, sni)
+        reply = probe(host, port, remaining, [remaining[0]], timeout, sni, starttls)
         if reply.outcome not in ("selected", "retry") or reply.group not in remaining:
             break
         out.pq_supported.append(group_name(reply.group))

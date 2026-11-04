@@ -1,7 +1,8 @@
 # Least-privilege kits
 
 Ready-to-deploy permissions for every source keycensus reads. Each grants listing and metadata reads
-only: no key use, no export, no secret values (except the credentials keycensus itself needs).
+only: no key use, no export, no secret values (except the credentials keycensus itself needs, and
+Kubernetes secrets, whose values RBAC cannot separate from their metadata).
 
 | Path | For | What it is |
 |---|---|---|
@@ -12,6 +13,7 @@ only: no key use, no export, no secret values (except the credentials keycensus 
 | `gcp/keycensus-kms-viewer-role.yaml` | `gcp-kms` | Custom role: seven read permissions, bound at the organization or a folder |
 | `vault/keycensus-policy.hcl` | `vault`, and `*_vault` secret references | Vault policy and a Kubernetes auth role example |
 | `ad/README.md` | `adcs` | Checklist for the LDAP account and the CA export task |
+| `kubernetes/keycensus-reader.yaml` | `kubernetes` | Service account and ClusterRole: secrets, pods, ingresses, cert-manager resources (the Helm chart has the same as `rbac.kubernetesSource`) |
 
 PKCS#11 needs a Crypto User (read) role on the partition or slot, never Crypto Officer; the
 CipherTrust and KeySafe 5 collectors need a read-only API user. Details per source:

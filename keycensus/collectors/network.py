@@ -1,4 +1,4 @@
-"""Collector: find TLS, LDAPS and SSH endpoints in a network range nobody listed.
+"""Collector: find TLS, LDAP and SSH endpoints in a network range nobody listed.
 
     - name: dc-east
       type: network
@@ -7,6 +7,7 @@
       ports:                                 # port -> service; this is the default
         443: tls
         8443: tls
+        389: ldap-starttls                   # LDAP, upgraded with the StartTLS extended operation
         636: ldaps                           # LDAP over TLS
         3269: ldaps                          # Active Directory global catalog over TLS
         22: ssh
@@ -24,13 +25,17 @@ SYN scan), then a protocol probe on each open port:
 
 * `tls` / `ldaps` -- the same handshake the `tls` collector does: a `protocol` asset (version,
   cipher suite, key exchange group) and a `certificate` asset for the leaf.
+* `ldap-starttls` -- sends the LDAP StartTLS extended request (no bind, no credentials), then the
+  same TLS probes over the upgraded connection. A server that answers LDAP but refuses StartTLS is
+  reported as a `protocol` asset with `extra.starttls_error`, because cleartext-only LDAP is
+  itself worth knowing about (simple binds would cross the wire in the clear).
 * `ssh` -- reads the banner and the server's KEXINIT, which SSH sends in the clear: a `protocol`
   asset with the offered kex, host key, cipher and MAC algorithms. No login is attempted.
 
 A port that is open but does not speak the expected protocol is logged and skipped.
 
 **Only scan networks you are authorized to scan.** Defaults are deliberately conservative:
-private and loopback ranges only, at most 4096 hosts, five ports. Raise `max_hosts` or set
+private and loopback ranges only, at most 4096 hosts, six ports. Raise `max_hosts` or set
 `allow_public: true` on purpose, in writing.
 """
 
@@ -42,16 +47,17 @@ import socket
 import ssl
 from concurrent.futures import ThreadPoolExecutor
 
-from ..model import CryptoAsset
+from ..model import KIND_PROTOCOL, STATE_ACTIVE, CryptoAsset
 from . import ssh_probe
 from .base import Collector, CollectorError
 from .ssh_endpoint import ssh_asset
+from .starttls import StartTlsError
 from .tls_endpoint import scan_endpoint
 
 log = logging.getLogger(__name__)
 
-DEFAULT_PORTS = {443: "tls", 8443: "tls", 636: "ldaps", 3269: "ldaps", 22: "ssh"}
-SERVICES = {"tls", "ldaps", "ssh"}
+DEFAULT_PORTS = {443: "tls", 8443: "tls", 389: "ldap-starttls", 636: "ldaps", 3269: "ldaps", 22: "ssh"}
+SERVICES = {"tls", "ldaps", "ldap-starttls", "ssh"}
 
 
 def expand(cidrs: list, exclude: list, max_hosts: int, allow_public: bool) -> list[str]:
@@ -123,10 +129,19 @@ class NetworkCollector(Collector):
             except OSError:
                 pass
         try:
-            if service in ("tls", "ldaps"):
+            if service in ("tls", "ldaps", "ldap-starttls"):
                 return scan_endpoint(self, host, port, timeout, bool(self.opt.get("probe_legacy", False)),
-                                     bool(self.opt.get("probe_pqc", True)), extra=extra)  # fmt: skip
+                                     bool(self.opt.get("probe_pqc", True)), extra=extra,
+                                     starttls="ldap" if service == "ldap-starttls" else None)  # fmt: skip
             return [ssh_asset(self, host, port, ssh_probe.probe(host, port, timeout), extra)]
+        except StartTlsError as exc:
+            if "refused" not in str(exc):
+                log.info("[%s] %s:%d open but no %s: %s", self.name, host, port, service, exc)
+                return []
+            # An LDAP server that will not upgrade: cleartext only.
+            return [self.asset(kind=KIND_PROTOCOL, name=f"{host}:{port}", native_id=f"{host}:{port}", protocol="LDAP",
+                               state=STATE_ACTIVE, location=f"{host}:{port}",
+                               extra={**extra, "starttls": "ldap", "starttls_error": str(exc)})]  # fmt: skip
         except (OSError, ssl.SSLError, ValueError) as exc:
             log.info("[%s] %s:%d open but no %s: %s", self.name, host, port, service, exc)
             return []

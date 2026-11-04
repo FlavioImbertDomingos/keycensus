@@ -1,7 +1,8 @@
 # Permissions
 
 What each source needs, at the least. Every grant below is a list or metadata read: keycensus never
-uses a key, exports one, or reads a secret value other than its own credentials. Ready-to-deploy files
+uses a key, exports one, or reads a secret value other than its own credentials. The one exception is
+Kubernetes, where reading a secret's metadata and its value are the same permission. Ready-to-deploy files
 are in [`deploy/`](../deploy/README.md).
 
 | Source | Grant | File |
@@ -15,7 +16,10 @@ are in [`deploy/`](../deploy/README.md).
 | `ciphertrust` | A read-only API user | |
 | `keysafe5` | A bearer token or client certificate with read access to keys | |
 | `adcs` | A Domain Users account for LDAP; CA *Read* for the account that runs the `certutil` export on each CA | [`deploy/ad/README.md`](../deploy/ad/README.md) |
-| `voltage`, `pem` | Read access to the export or the folder | |
+| `voltage`, `files` (`pem`) | Read access to the export or the folders. Keystore passwords, if you want PKCS#12 contents, through `keystore_passwords` secret references | |
+| `kubernetes` | `get`/`list` secrets; `list` pods and ingresses (for `used_by`); `get`/`list` cert-manager certificates, issuers, clusterissuers. RBAC cannot limit secrets to TLS ones, so this reads every value in scope: use RoleBindings per namespace to narrow it | [`deploy/kubernetes/keycensus-reader.yaml`](../deploy/kubernetes/keycensus-reader.yaml), Helm `rbac.kubernetesSource` |
+| `ct` | Outbound HTTPS to api.certspotter.com or crt.sh. An optional Cert Spotter API key | |
+| `code` | Read access to the checked-out repositories | |
 | `tls`, `ssh`, `network` | Network reach to the endpoints. No credentials. Written approval for the ranges you scan. | |
 
 ## keycensus's own credentials

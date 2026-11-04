@@ -67,6 +67,10 @@ serviceAccount:
 * **OIDC**: set `config.serve.auth.oidc` (see `docs/PERMISSIONS.md`). `redirect_url` must be the address
   your Ingress serves, and with more than one replica every pod needs the same `session_key` (put it in
   `existingSecret` and reference it with `session_key_env`).
+* **Scanning this cluster** (`type: kubernetes` with no kubeconfig): set `rbac.kubernetesSource: true`. The
+  chart then creates a ClusterRole to read secrets, pods, ingresses and cert-manager resources, binds it to
+  the service account and mounts its token (otherwise the token is not mounted). Reading secrets means
+  reading their values; leave it off unless you use that source.
 * **Audit and signing**: set `config.audit` and `config.signing` (they pass through to the config file).
   Put the audit log on the scan PVC or ship it off the pod, and mount the signing key from a Secret
   with `extraVolumes`.

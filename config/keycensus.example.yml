@@ -143,15 +143,17 @@ sources:
     # include_revoked: false
     # ca_hardware_backed: true         # CA keys are in an HSM (LDAP cannot tell)
 
-  # ---- Files on disk
+  # ---- Files on disk: PEM/DER, PKCS#12, JKS/JCEKS, SSH keys, authorized_keys, known_hosts, SSH certificates
   - name: app-certs
-    type: pem
-    paths: [/etc/ssl/app, /opt/payments/keys]
+    type: files                      # `pem` also works
+    paths: [/etc/ssl/app, /opt/payments/keys, /etc/ssh]
+    # keystore_passwords:            # tried on keystores and encrypted PEM keys, then the well-known ones
+    #   - password_env: APP_KEYSTORE_PASSWORD
 
   # ---- Live TLS endpoints
   - name: edges
     type: tls
-    endpoints: ["api.example.com:443", "hsm-proxy.internal:8443"]
+    endpoints: ["api.example.com:443", "hsm-proxy.internal:8443", "ldap://dc01.corp.example.com"]  # ldap:// = StartTLS
     probe_legacy: true
     probe_pqc: true                  # TLS 1.3 key exchange: classical, hybrid (X25519MLKEM768) or ML-KEM
 
@@ -160,11 +162,32 @@ sources:
     type: ssh
     endpoints: ["bastion.example.com", "10.0.0.7:2222"]
 
-  # ---- Network discovery: TLS, LDAPS and SSH endpoints nobody listed. Scan only what you may scan.
+  # ---- Network discovery: TLS, LDAP (StartTLS on 389, LDAPS) and SSH endpoints nobody listed.
+  #      Scan only what you may scan.
   - name: dc-east
     type: network
     cidrs: [10.20.0.0/22]
     # exclude: [10.20.1.0/28]
-    # ports: {443: tls, 8443: tls, 636: ldaps, 3269: ldaps, 22: ssh}   # the default
+    # ports: {443: tls, 8443: tls, 389: ldap-starttls, 636: ldaps, 3269: ldaps, 22: ssh}   # the default
     # max_hosts: 4096                # larger ranges are refused unless raised
     # allow_public: false            # public addresses are refused unless set
+
+  # ---- Kubernetes: TLS and Opaque secrets (keys, certificates, keystores), cert-manager, consumers
+  #      pip install "keycensus[kubernetes]"; RBAC in deploy/kubernetes/keycensus-reader.yaml
+  # - name: prod-cluster
+  #   type: kubernetes
+  #   context: prod                  # default: in-cluster service account, else $KUBECONFIG
+  #   namespaces: []                 # default: all
+
+  # ---- Certificate Transparency: every public certificate issued for your domains
+  # - name: public-certs
+  #   type: ct
+  #   domains: [example.com]
+  #   expected_issuers: ["Let's Encrypt", "DigiCert"]   # anything else is a finding
+  #   api_key_env: CERTSPOTTER_API_KEY                  # optional
+
+  # ---- Source code: hard-coded private keys and keystores, crypto API calls
+  # - name: payments-repo
+  #   type: code
+  #   paths: [/src/payments-api]
+  #   exclude: ["docs/**"]

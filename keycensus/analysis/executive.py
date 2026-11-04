@@ -26,7 +26,15 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any
 
-from ..model import ALG_DH, ALG_X25519, KIND_CERTIFICATE, KIND_KEY, KIND_PROTOCOL, CryptoAsset, Inventory
+from ..model import (
+    ALG_DH,
+    ALG_X25519,
+    KIND_ALGORITHM,
+    KIND_CERTIFICATE,
+    KIND_PROTOCOL,
+    CryptoAsset,
+    Inventory,
+)
 from . import strength
 
 # Findings that mean the crypto is broken or disallowed already, whatever the quantum timeline says.
@@ -90,12 +98,10 @@ def _today(today: date | datetime | None) -> date:
 
 def _population(inv: Inventory) -> list[CryptoAsset]:
     """Keys and certificates, without the public half of a key pair already counted as its private key."""
-    private = {(a.source, a.name) for a in inv.assets if a.kind == KIND_KEY and a.key_type == "private-key"}
-    return [
-        a for a in inv.assets
-        if a.kind != KIND_PROTOCOL
-        and not (a.kind == KIND_KEY and a.key_type == "public-key" and (a.source, a.name) in private)
-    ]  # fmt: skip
+    from .policy import public_halves  # noqa: PLC0415
+
+    skip = public_halves(inv.assets)
+    return [a for a in inv.assets if a.kind not in (KIND_PROTOCOL, KIND_ALGORITHM) and a.id not in skip]
 
 
 def _use(a: CryptoAsset) -> str:
@@ -129,7 +135,7 @@ def summarize(inv: Inventory, today: date | datetime | None = None) -> dict[str,
     pqc_eps = [a for a in endpoints if ep_class.get(a.id) == strength.QUANTUM_SAFE]
 
     broken_ids = {f.asset_id for f in inv.findings if f.rule_id in BROKEN_NOW_RULES}
-    broken = [a for a in inv.assets if a.id in broken_ids]
+    broken = [a for a in inv.assets if a.id in broken_ids and a.kind != KIND_ALGORITHM]
 
     members: dict[str, tuple[list[CryptoAsset], list[CryptoAsset]]] = {
         "now": ([a for a in broken if a.kind != KIND_PROTOCOL], [a for a in broken if a.kind == KIND_PROTOCOL]),

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from .analysis import strength
@@ -206,6 +206,18 @@ _STRENGTH_FIELDS = ("algorithm", "key_size", "curve")
 _RETIRED_STATES = {STATE_DEACTIVATED, STATE_DESTROYED}
 
 
+def _gone_for_a_reason(a: dict) -> bool:
+    if a.get("kind") == "algorithm":
+        return True
+    exp = a.get("expires")
+    if a.get("kind") == "certificate" and exp:
+        try:
+            return datetime.fromisoformat(str(exp).replace("Z", "+00:00")) <= datetime.now(UTC)
+        except ValueError:
+            return False
+    return False
+
+
 def classify(diff: Diff, urgency: dict[str, str] | None = None) -> list[Change]:
     """Diff -> classified changes, ordered page first."""
     table = dict(DEFAULT_URGENCY)
@@ -232,11 +244,14 @@ def classify(diff: Diff, urgency: dict[str, str] | None = None) -> list[Change]:
         )
 
     # --- assets that vanished -------------------------------------------
+    # Not incidents: a certificate dropping out after its expiry date (CT and Kubernetes
+    # sources stop listing renewed-away certificates), and a code call site that is gone
+    # because the code changed.
     for a in diff.removed:
         # A key that was already deactivated or destroyed disappearing is
         # housekeeping. One that was ACTIVE disappearing is an incident until
         # proven otherwise.
-        retired = a.get("state") in _RETIRED_STATES
+        retired = a.get("state") in _RETIRED_STATES or _gone_for_a_reason(a)
         emit(
             "asset-retired" if retired else "asset-removed",
             f"{a.get('source')}/{a.get('name')} is gone"
