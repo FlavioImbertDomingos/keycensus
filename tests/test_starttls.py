@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import subprocess
@@ -49,17 +50,32 @@ class Slapd:
             conf[1:1] = [f"TLSCertificateFile {d}/c.pem", f"TLSCertificateKeyFile {d}/k.pem"]
         (d / "slapd.conf").write_text("\n".join(conf) + "\n")
         self.port = _free_port()
-        self.proc = subprocess.Popen([SLAPD, "-f", str(d / "slapd.conf"), "-h", f"ldap://127.0.0.1:{self.port}/",
-                                      "-d", "0"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)  # fmt: skip
+        # -d 256 logs connections and errors, so a failure to start says why. A file, not a pipe: nothing reads
+        # the log while slapd runs, and a full pipe would block it.
+        self.log = d / "slapd.log"
+        with open(self.log, "wb") as log:
+            self.proc = subprocess.Popen([SLAPD, "-f", str(d / "slapd.conf"), "-h", f"ldap://127.0.0.1:{self.port}/",
+                                          "-d", "256"], stdout=subprocess.DEVNULL, stderr=log)  # fmt: skip
         for _ in range(100):
             try:
                 socket.create_connection(("127.0.0.1", self.port), timeout=0.2).close()
                 return
             except OSError:
                 if self.proc.poll() is not None:
-                    raise RuntimeError(self.proc.stderr.read().decode()) from None
+                    tail = self.log.read_text(errors="replace")[-2000:]
+                    self._unavailable(f"exit code {self.proc.returncode}: {tail}")
                 time.sleep(0.05)
-        raise RuntimeError("slapd did not start")
+        self.proc.kill()
+        self._unavailable("did not listen within 5 seconds")
+
+    @staticmethod
+    def _unavailable(why: str):
+        """slapd is installed but cannot run here (on Ubuntu, usually its AppArmor profile, which confines it
+        to /etc/ldap and /var/lib/ldap). Skip, unless KEYCENSUS_REQUIRE_SLAPD says this machine must run it."""
+        msg = f"slapd could not start ({why}). On Ubuntu: sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.slapd"
+        if os.environ.get("KEYCENSUS_REQUIRE_SLAPD"):
+            raise RuntimeError(msg)
+        pytest.skip(msg)
 
     def close(self):
         self.proc.terminate()

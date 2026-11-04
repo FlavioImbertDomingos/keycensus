@@ -28,6 +28,8 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q softhsm2 slapd
+          # Ubuntu's AppArmor profile confines slapd to /etc/ldap and /var/lib/ldap; the tests run it from a temp dir
+          if [ -f /etc/apparmor.d/usr.sbin.slapd ]; then sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.slapd || true; fi
       - name: Install
         run: |
           pip install ruff
@@ -37,6 +39,8 @@ jobs:
           ruff check keycensus tests demo mock-voltage grafana
           ruff format --check keycensus tests demo mock-voltage grafana
       - name: Pytest
+        env:
+          KEYCENSUS_REQUIRE_SLAPD: "1"   # the StartTLS tests must run here, not skip
         run: python -m pytest -q
 
   helm-chart:
