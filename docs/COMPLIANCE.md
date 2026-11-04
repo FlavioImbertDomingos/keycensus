@@ -17,7 +17,8 @@ standard. Not QSA or legal advice.
 | **4.2.1** | Strong cryptography for PAN in transit; only trusted keys/certs | `tls-*` findings, `cert-expired`, `cert-expiring-*`, `cert-self-signed`; with the `adcs` collector, every certificate an internal CA has issued, not only the ones found on disk or on a port |
 | **12.3.3** | Inventory of cipher suites and protocols in use, reviewed ≥ annually, with a plan for deprecated ones | The CBOM + `quantum-*`, `tls-*`, `ssh-*` and key exchange findings; the `network` collector finds the endpoints nobody listed; run it on a schedule and keep the outputs |
 
-**How to present it to an assessor:** a dated `cbom.json` + `report.html` from a scheduled scan,
+**How to present it to an assessor:** a dated `cbom.json` + `report.html` from a scheduled scan (its
+executive summary is the one-page answer to "how much is left, and by when"),
 the policy YAML (your cryptoperiods and thresholds), and the ticket trail for the findings. With
 `signing:` on, hand over the scan folder and the public key: `keycensus verify out --public-key ...`
 shows nothing was edited after the scan. With `signing.timestamp` on, a Time Stamping Authority vouches

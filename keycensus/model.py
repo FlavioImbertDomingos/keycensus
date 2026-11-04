@@ -285,12 +285,19 @@ class Inventory:
             "assets_by_algorithm": dict(sorted(by_alg.items(), key=lambda kv: -kv[1])),
         }
 
+    def executive(self) -> dict[str, Any]:
+        """Quantum exposure and what falls due before each PQC date, as of the scan (analysis.executive)."""
+        from .analysis.executive import summarize  # noqa: PLC0415  (analysis imports model)
+
+        return summarize(self, today=self.generated_at)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "tool": "keycensus",
             "generated_at": iso(self.generated_at),
             "policy": self.policy_name,
             "summary": self.summary(),
+            "executive": self.executive(),
             "sources": [
                 {
                     "name": s.name,

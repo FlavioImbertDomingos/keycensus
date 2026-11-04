@@ -17,6 +17,7 @@
         analysis/policy.evaluate()  ──► list[Finding]      (rules × assets, thresholds from policy YAML)
         analysis/strength.assess()  ──► classical bits, quantum class, NIST level
         analysis/controls           ──► control catalogue text
+        analysis/executive.summarize() ──► quantum share + what is due before each PQC date
                   │
                   ▼
         exporters/  json · csv · cbom (CycloneDX 1.6) · html_report · prometheus
@@ -105,6 +106,7 @@ with a default filename. The serve loop picks up new formats automatically if yo
 | `keycensus/analysis/strength.py` | security strength & quantum classification tables |
 | `keycensus/analysis/policy.py` | rules engine + policy loading/merging |
 | `keycensus/analysis/controls.py` | control catalogue (PCI, NIST) |
+| `keycensus/analysis/executive.py` | executive summary: quantum-vulnerable share and milestones from docs/PQC-TIMELINE.md |
 | `keycensus/exporters/` | json, csv, cbom, html_report (+ `templates/report.html`), prometheus |
 | `keycensus/scanner.py` | orchestration |
 | `keycensus/secrets.py` | secret references: env, file, Vault, AWS Secrets Manager, Azure Key Vault, GCP Secret Manager |
