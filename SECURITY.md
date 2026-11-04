@@ -30,7 +30,9 @@ with names, locations and weaknesses. Treat both the config and the outputs acco
 ## What you should do
 
 - Restrict who can read `out/`, the `/report.html` port, and the CBOM — they are a target list.
-- Put `keycensus serve` behind your monitoring network, not on a public interface.
+- Put `keycensus serve` behind your monitoring network, not on a public interface. Today it listens on
+  all interfaces with no authentication; use `--listen 127.0.0.1` or a reverse proxy with auth until the
+  roadmap's `serve` hardening ships.
 - Use a Crypto User (not Crypto Officer) role for PKCS#11; a read-only Vault policy; an IAM role
   with only the five `kms:*` read actions; a dedicated AD account with no rights beyond domain user
   for the AD CS LDAP bind.

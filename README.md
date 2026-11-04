@@ -371,10 +371,50 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
 - [x] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking *(0.5.0)*
 - [x] Microsoft AD CS: CA certificates and templates from Active Directory, issued certificates from `certutil` exports *(0.6.0, mock-verified)*
+
+Next, in order. The first three are the next three releases.
+
+### 1. Safe to leave running
+
+- [ ] `serve` binds to `127.0.0.1` by default, requires a token (OIDC for enterprise) for the report and CBOM, and supports TLS; `/metrics` can stay open
+- [ ] Signed releases: cosign signatures, build provenance and an SBOM for the keycensus image and packages
+- [ ] Least-privilege kits: ready-made IAM policies, Azure role definitions, a Vault policy and an AD service-account checklist
+- [ ] Credentials from Vault, AWS Secrets Manager or Azure Key Vault, not only environment variables and files
+- [ ] Audit log as JSON lines, each entry carrying the previous entry's hash: every scan (sources, credential identity, results), every report or CBOM read in `serve`, every config or policy change, every webhook sent
+- [ ] Signed scan records: each CBOM and report hashed and signed, so an assessor can verify it existed on that date unchanged (PCI DSS 12.3.3 evidence)
+
+### 2. Easy to start
+
+- [ ] `brew install keycensus`, `pipx install keycensus` and single-file binaries on the releases page
+- [ ] `keycensus init`: asks which sources you run, tests each credential, writes the config and runs the first scan
+- [ ] `keycensus doctor`: for each source, what it can reach, which permission is missing and the policy that fixes it
+- [ ] Executive summary at the top of the report: share of quantum-vulnerable keys and what is due before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md)
+
+### 3. Discovery: find what nobody listed
+
+- [ ] Hybrid key exchange (e.g. X25519 + ML-KEM-768) reported by the `tls` collector and classified as allowed but temporary, per NIST IR 8547
+- [ ] Network discovery: scan a CIDR range for TLS, SSH and LDAPS endpoints
+- [ ] Cloud auto-discovery across every AWS account, Azure subscription and GCP project in an organization
+- [ ] Certificate Transparency logs: every public certificate issued for your domains
+- [ ] Kubernetes secrets and cert-manager, JKS and PKCS#12 keystores, SSH host and user keys
+- [ ] Code scanning for hard-coded keys and cryptographic API use
+
+### 4. Teams and scale
+
+- [ ] Agent and server: one agent per network zone sends signed results to a central server
+- [ ] Web UI with roles: findings with owners, due dates and expiring risk exceptions (PCI DSS 12.3.3's plan for weakened algorithms, as a workflow)
+- [ ] Jira and ServiceNow tickets per finding; GRC-ready export
+- [ ] Migration plan per quantum-vulnerable key: the deadline that applies (IR 8547, EO 14412 for federal scope), the replacement algorithm and the blast radius from SBOM linking
+
+### Validation and standards
+
 - [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
 - [ ] AD CS validation against a live forest and CA database export
-- [ ] Hybrid key exchange (e.g. X25519 + ML-KEM-768) reported by the `tls` collector and classified as allowed but temporary, per NIST IR 8547
 - [ ] Map the CBOM to the NIST / CISA minimum elements once EO 14412's guidance is published
+
+Language: keycensus stays in Python. It spends its time waiting on HSMs, APIs and networks, so a rewrite
+would cost months of features for little speed. If the agent in item 4 needs a small static binary, that
+one component may be written in Go.
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.
