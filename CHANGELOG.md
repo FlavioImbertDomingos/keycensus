@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0 — 2026-11-04
+
+**An executive summary at the top of the report.**
+
+- `report.html` now opens with the share of keys and certificates that are quantum-vulnerable, split
+  by use (encrypt and key agreement, the harvest-now-decrypt-later exposure; signing and certificates;
+  purpose unknown), and a table of what must move before each date in docs/PQC-TIMELINE.md: broken
+  crypto now (PCI DSS 12.3.3), key establishment by 31 Dec 2030 and signatures by 31 Dec 2031 (EO 14412,
+  IR 8547 deprecation), and everything by 31 Dec 2035 (IR 8547 disallowed). Each row gives the keys and
+  certificates, the endpoints, the days left, who the date binds, and how many assets are still valid on
+  the date. Probed endpoints are split into classical, hybrid and pure ML-KEM.
+- A key that both signs and decrypts falls due at the earlier date. Keys with no recorded purpose
+  appear only in the 2035 row and are called out. Hybrid endpoints meet the 2030 date and are not
+  counted as due.
+- The same summary is in `inventory.json` (`executive`), in the `keycensus scan` console output, and in
+  Prometheus: `keycensus_quantum_vulnerable_ratio`, `keycensus_pqc_milestone_assets{milestone,date,kind}`,
+  `keycensus_pqc_milestone_days_left{milestone,date}`.
+- Helm chart 0.4.1, `appVersion` 0.10.0.
+
 ## 0.9.0 — 2026-11-04
 
 **Sign in with your identity provider, and timestamps a third party vouches for.**

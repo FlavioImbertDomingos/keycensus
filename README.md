@@ -229,10 +229,10 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | Format | For | Notes |
 |---|---|---|
 | `cbom.json` | Auditors, Dependency-Track, PQC migration tools | CycloneDX 1.6, `cryptographic-asset` components; findings as `vulnerabilities`; **schema-validated in CI** |
-| `report.html` | Humans | Self-contained, printable, filterable |
-| `inventory.json` | Scripts | Everything, including raw source fields |
+| `report.html` | Humans | Self-contained, printable, filterable. Opens with an executive summary: the share of quantum-vulnerable keys and certificates, and what must move before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) |
+| `inventory.json` | Scripts | Everything, including raw source fields; the executive summary as `executive` |
 | `inventory.csv` | Spreadsheets, GRC uploads | One row per asset with findings column |
-| `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class, **and change counters** |
+| `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class, assets due before each PQC date, **and change counters** |
 | `diff.json` / `diff.md` | Change review, CI gates | With `--baseline previous/inventory.json`: assets added / removed / changed, findings new / resolved, sources broken |
 | `changes.json` | Alerting | Each change classified into a kind with an urgency: what should page, what waits for the weekly digest |
 | `manifest.json` + `.sig` (+ `.tsr`) | Assessors, evidence | With `signing:`: the SHA-256 of every output, an Ed25519 signature over them, and with `signing.timestamp` an RFC 3161 timestamp on the signature; `keycensus verify` checks it |
@@ -422,7 +422,7 @@ Next, in order. The first three are the next three releases.
 - [ ] `brew install keycensus`, `pipx install keycensus` and single-file binaries on the releases page
 - [ ] `keycensus init`: asks which sources you run, tests each credential, writes the config and runs the first scan
 - [ ] `keycensus doctor`: for each source, what it can reach, which permission is missing and the policy that fixes it
-- [ ] Executive summary at the top of the report: share of quantum-vulnerable keys and what is due before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md)
+- [x] Executive summary at the top of the report: share of quantum-vulnerable keys and what is due before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) *(0.10.0)*
 
 ### 3. Discovery: find what nobody listed
 

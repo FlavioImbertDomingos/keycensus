@@ -83,6 +83,7 @@ def render(inv: Inventory) -> str:
             for s in inv.sources
         ],
         pqc=pqc,
+        executive=inv.executive(),
         kex=kex,
         applications=impact(inv),
         controls=controls,

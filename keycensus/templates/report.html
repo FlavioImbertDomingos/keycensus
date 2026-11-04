@@ -42,6 +42,17 @@
   input[type=search] { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; margin-bottom:10px; font-size:14px }
   .ok{color:var(--ok)} .bad{color:var(--bad)}
   .explain { background:#eef6ff; border:1px solid #cfe3ff; border-radius:10px; padding:12px 16px; margin:12px 0 }
+  .exec { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--bad); border-radius:10px; padding:16px 20px; margin:8px 0 12px }
+  .exec h2 { margin:0 0 6px }
+  .exec .headline { font-size:16px; margin:0 0 12px }
+  .exec .big { font-size:34px; font-weight:600; color:var(--bad); line-height:1 }
+  .exec .row { display:flex; gap:24px; align-items:center; flex-wrap:wrap; margin-bottom:12px }
+  .exec .meter { flex:1; min-width:220px }
+  .due.past td:first-child { color:var(--bad); font-weight:600 }
+  .num { text-align:right; white-space:nowrap }
+  .scroll { overflow-x:auto }
+  .exec table { min-width:720px }
+  @media print { .exec { break-inside:avoid } }
   @media print { header{background:#fff;color:#000} input{display:none} }
 </style>
 </head>
@@ -51,6 +62,55 @@
   <p>Generated {{ generated_at }} · policy <strong>{{ policy }}</strong> · {{ summary.sources }} sources · {{ summary.assets }} assets · {{ summary.findings }} findings</p>
 </header>
 <main>
+
+{% set ex = executive %}
+<section class="exec" id="executive-summary">
+  <h2>Executive summary</h2>
+  <p class="headline">{{ ex.headline }}</p>
+  {% if ex.keys_and_certificates %}
+  <div class="row">
+    <div><div class="big">{{ ex.quantum_vulnerable_percent }}%</div><div class="muted small">quantum-vulnerable keys and certificates</div></div>
+    <div class="meter">
+      <div class="bar" role="img" aria-label="{{ ex.quantum_vulnerable_percent }}% quantum-vulnerable">
+        <div style="width:{{ ex.quantum_vulnerable_percent }}%;background:var(--bad)"></div>
+      </div>
+      <div class="legend">
+        <span>{{ ex.vulnerable_by_use['key-establishment'] }} encrypt or agree keys (harvest now, decrypt later)</span>
+        <span>{{ ex.vulnerable_by_use['signature'] }} sign or certificates</span>
+        {% if ex.vulnerable_by_use['unknown'] %}<span>{{ ex.vulnerable_by_use['unknown'] }} purpose unknown</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  <div class="scroll"><table>
+    <thead><tr><th>Due</th><th>What must have moved</th><th class="num">Keys / certs</th><th class="num">Endpoints</th><th class="num">Still valid on the date</th><th>Basis and who it binds</th></tr></thead>
+    <tbody>
+    {% for m in ex.milestones %}
+      <tr class="due {{ 'past' if m.past }}">
+        <td>{% if m.id == 'now' %}Now<div class="small muted">in force since {{ m.date }}</div>{% else %}{{ m.date }}<div class="small muted">{{ m.days_left }} days left</div>{% endif %}</td>
+        <td><strong>{{ m.title }}</strong><div class="small muted">{{ m.covers }}</div></td>
+        <td class="num">{{ m.assets }}</td>
+        <td class="num">{{ m.endpoints if m.id in ('now', 'key-establishment-2030', 'disallowed-2035') else '' }}</td>
+        <td class="num">{{ m.valid_past_date if m.id != 'now' else '' }}</td>
+        <td class="small">{{ m.basis }}<div class="muted">{{ m.binding }}</div></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="small muted">
+    "Still valid on the date" counts keys and certificates whose expiry falls after the deadline: replacing them at normal renewal will be late.
+    {% if ex.vulnerable_by_use['unknown'] %}{{ ex.vulnerable_by_use['unknown'] }} quantum-vulnerable key{{ 's' if ex.vulnerable_by_use['unknown'] != 1 }} {{ 'have' if ex.vulnerable_by_use['unknown'] != 1 else 'has' }} no recorded purpose and {{ 'appear' if ex.vulnerable_by_use['unknown'] != 1 else 'appears' }} only in the 2035 row; treat them as 2030 if they could encrypt.{% endif %}
+    {% if ex.endpoints.hybrid %}{{ ex.endpoints.hybrid }} hybrid endpoint{{ 's' if ex.endpoints.hybrid != 1 }} {{ 'meet' if ex.endpoints.hybrid != 1 else 'meets' }} the 2030 date but NIST treats hybrids as temporary.{% endif %}
+    {% if ex.endpoints.unprobed %}{{ ex.endpoints.unprobed }} endpoint{{ 's' if ex.endpoints.unprobed != 1 }} had no key exchange probed and {{ 'are' if ex.endpoints.unprobed != 1 else 'is' }} not counted.{% endif %}
+    {% for n in ex.notes[:1] %}{{ n }}{% endfor %}
+    Dates and sources: docs/PQC-TIMELINE.md. Counts as of {{ ex.as_of }}.
+  </p>
+  {% if ex.top_sources %}
+  <p class="small"><span class="muted">Most exposed sources:</span>
+    {% for r in ex.top_sources %}<span class="pill vuln">{{ r.source }} {{ r.vulnerable }}/{{ r.total }}</span>{% endfor %}
+  </p>
+  {% endif %}
+</section>
 
 <div class="explain">
   <strong>What is this?</strong> A census of every cryptographic key, certificate and TLS endpoint keycensus could find,

@@ -115,6 +115,12 @@ def scan(
         status = f"ERROR {src.error}" if src.error else f"{len(src.assets)} assets"
         click.echo(f"  - {src.name} ({src.type}): {status}")
     click.echo("findings: " + ", ".join(f"{k}={v}" for k, v in s["findings_by_severity"].items()))
+    ex = inv.executive()
+    click.echo(f"quantum:  {ex['headline']}")
+    for m in ex["milestones"]:
+        when = "now       " if m["id"] == "now" else m["date"]
+        eps = f", {m['endpoints']} endpoints" if m["endpoints"] else ""
+        click.echo(f"  {when}  {m['assets']:5} keys/certs{eps}  {m['title']}")
     if inv.findings:
         click.echo("")
         for f in inv.findings[:15]:

@@ -149,6 +149,25 @@ class InventoryCollector:
             assets.add_metric(list(k), float(n))
         yield assets
 
+        ex = inv.executive()
+        ratio = GaugeMetricFamily(f"{NS}_quantum_vulnerable_ratio",
+                                  "Share of keys and certificates that are quantum-vulnerable (0..1)")  # fmt: skip
+        ratio.add_metric([], ex["quantum_vulnerable_percent"] / 100.0)
+        yield ratio
+        due = GaugeMetricFamily(
+            f"{NS}_pqc_milestone_assets",
+            "Keys, certificates (kind=asset) and endpoints (kind=endpoint) that must move before a PQC date",
+            labels=["milestone", "date", "kind"],
+        )
+        left = GaugeMetricFamily(f"{NS}_pqc_milestone_days_left", "Days until the PQC date (negative: passed)",
+                                 labels=["milestone", "date"])  # fmt: skip
+        for m in ex["milestones"]:
+            due.add_metric([m["id"], m["date"], "asset"], float(m["assets"]))
+            due.add_metric([m["id"], m["date"], "endpoint"], float(m["endpoints"]))
+            left.add_metric([m["id"], m["date"]], float(m["days_left"]))
+        yield due
+        yield left
+
         findings = GaugeMetricFamily(
             f"{NS}_findings",
             "Open findings by severity, rule and source",
