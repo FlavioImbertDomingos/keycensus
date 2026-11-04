@@ -68,4 +68,48 @@ serve:
 
 Give each reader its own named token: the audit log records which token read which file, so you can
 answer "who downloaded the CBOM last week". `serve` refuses to start on a non-loopback address with
-no token at all, unless `allow_unauthenticated: true` says something in front of it authenticates.
+no token and no OIDC, unless `allow_unauthenticated: true` says something in front of it authenticates.
+
+### Sign in with your identity provider (OIDC)
+
+People sign in through Entra ID, Okta, Google, Keycloak or any other OpenID Connect provider; machines
+send access tokens that provider issued. Tokens and OIDC can be used together.
+
+```yaml
+serve:
+  listen: 0.0.0.0
+  auth:
+    oidc:
+      issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+      client_id: <application-id>
+      client_secret_vault: secret/data/keycensus#oidc_client_secret
+      redirect_url: https://keycensus.example.com/oauth2/callback
+      allowed_groups: [<group-object-id>]       # at least one allow rule is required
+      session_hours: 8
+      session_key_env: KC_SESSION_KEY           # the same value on every replica
+      accept_bearer_jwt: true                   # machines: client credentials / workload identity
+      audience: api://keycensus
+      allowed_subjects: [<ci-app-client-id>]
+```
+
+A browser that opens `/report.html` without a session is sent to the provider and back to
+`redirect_url`; keycensus checks the ID token and issues its own session cookie. `/logout` ends it.
+An API client without credentials gets `401` with `WWW-Authenticate: Bearer`.
+
+Who may sign in is decided by `allowed_emails`, `allowed_domains`, `allowed_groups` (matched against
+`groups_claim`, default `groups`) and `allowed_subjects` (`sub`, `azp`, `client_id` or `appid`, for
+machine tokens). At least one is required. Claims missing from the ID token are read from the
+provider's userinfo endpoint, only when it names the same subject.
+
+Per provider:
+
+| Provider | `issuer` | Allow rule that works |
+|---|---|---|
+| Entra ID | `https://login.microsoftonline.com/<tenant-id>/v2.0` (one tenant, never `common`) | `allowed_groups` with group object ids (enable the groups claim on the app registration), or `allowed_subjects` with app ids. Avoid `allowed_domains` on Entra: the `email` claim is not verified there. |
+| Okta | `https://<org>.okta.com/oauth2/default` | `allowed_groups` (add a `groups` claim to the authorization server) |
+| Google | `https://accounts.google.com` | `allowed_domains: [your-workspace-domain]` |
+| Keycloak | `https://<host>/realms/<realm>` | `allowed_groups` (add the group membership mapper, full path off) |
+
+Register `redirect_url` exactly as configured. keycensus uses the authorization code flow with PKCE,
+checks `state` and `nonce`, accepts RS/PS/ES/EdDSA signatures only, and never stores the provider's
+tokens.

@@ -20,7 +20,8 @@ standard. Not QSA or legal advice.
 **How to present it to an assessor:** a dated `cbom.json` + `report.html` from a scheduled scan,
 the policy YAML (your cryptoperiods and thresholds), and the ticket trail for the findings. With
 `signing:` on, hand over the scan folder and the public key: `keycensus verify out --public-key ...`
-shows nothing was edited after the scan. With `audit:` on, the audit log shows every scan that ran,
+shows nothing was edited after the scan. With `signing.timestamp` on, a Time Stamping Authority vouches
+for when it was signed (`--tsa-ca-file`), which is what an annual 12.3.3 review date needs. With `audit:` on, the audit log shows every scan that ran,
 when the config or policy changed, and who read the inventory.
 `keycensus scan --fail-on high` in a pipeline gives you the "we would have caught it" evidence.
 

@@ -16,7 +16,8 @@ An assessor needs the public key and the folder. Keep the private key where the 
 and nobody else can; anyone holding it can sign a different inventory. For evidence that must also
 prove *when* it was signed against a party you do not control, add an RFC 3161 timestamp or a
 Sigstore / Rekor entry on top: this signature proves who, the manifest's timestamp is the signer's
-own claim.
+own claim. `signing.timestamp` adds exactly that: an RFC 3161 timestamp over the signature, stored as
+manifest.json.tsr (see keycensus.timestamp).
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from .model import iso, utcnow
 
 MANIFEST = "manifest.json"
 SIGNATURE = "manifest.json.sig"
+TIMESTAMP = "manifest.json.tsr"
 
 
 class SigningError(Exception):
@@ -95,19 +97,45 @@ def build_manifest(files: dict[str, bytes], key: Ed25519PrivateKey, meta: dict[s
     return body, base64.b64encode(key.sign(body)) + b"\n"
 
 
-def sign_dir(out_dir: str | Path, names: list[str], key: Ed25519PrivateKey, meta: dict[str, Any] | None = None
-             ) -> dict[str, str]:  # fmt: skip
+def stamp_signature(sig_b64: bytes, ts_cfg: dict[str, Any] | None) -> tuple[bytes | None, dict | None]:
+    """RFC 3161 timestamp over the raw signature, if `signing.timestamp` is configured.
+    Returns (DER reply, stamp info) or (None, error info); raises when `required` and it failed."""
+    if not ts_cfg or not ts_cfg.get("urls"):
+        return None, None
+    from .timestamp import TimestampError, request  # noqa: PLC0415
+
+    raw = base64.b64decode(sig_b64.strip())
+    try:
+        der, stamp, url = request(raw, [str(u) for u in ts_cfg["urls"]], ts_cfg.get("ca_file"),
+                                  float(ts_cfg.get("timeout", 10)))  # fmt: skip
+    except TimestampError as exc:
+        if ts_cfg.get("required"):
+            raise SigningError(f"signing.timestamp is required and failed: {exc}") from exc
+        return None, {"error": str(exc)}
+    return der, {**stamp.to_dict(), "url": url}
+
+
+def sign_dir(out_dir: str | Path, names: list[str], key: Ed25519PrivateKey, meta: dict[str, Any] | None = None,
+             ts_cfg: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
     out = Path(out_dir)
     files = {n: (out / n).read_bytes() for n in names if (out / n).is_file()}
     body, sig = build_manifest(files, key, meta)
     (out / MANIFEST).write_bytes(body)
     (out / SIGNATURE).write_bytes(sig)
-    return {"manifest_sha256": hashlib.sha256(body).hexdigest(), "key": fingerprint(key.public_key()),
-            "files": len(files)}  # fmt: skip
+    result: dict[str, Any] = {"manifest_sha256": hashlib.sha256(body).hexdigest(), "key": fingerprint(key.public_key()),
+                              "files": len(files)}  # fmt: skip
+    tsr, info = stamp_signature(sig, ts_cfg)
+    (out / TIMESTAMP).unlink(missing_ok=True)  # never leave a stale timestamp next to a new signature
+    if tsr:
+        (out / TIMESTAMP).write_bytes(tsr)
+    if info:
+        result["timestamp"] = info
+    return result
 
 
-def verify_dir(out_dir: str | Path, pub: Ed25519PublicKey) -> tuple[bool, list[str]]:
-    """(ok, report lines). Checks the signature first, then every listed file's hash."""
+def verify_dir(out_dir: str | Path, pub: Ed25519PublicKey, tsa_ca_file: str | None = None,
+               require_timestamp: bool = False) -> tuple[bool, list[str]]:  # fmt: skip
+    """(ok, report lines). Checks the signature, the RFC 3161 timestamp if there is one, then every file."""
     out = Path(out_dir)
     lines: list[str] = []
     try:
@@ -122,9 +150,25 @@ def verify_dir(out_dir: str | Path, pub: Ed25519PublicKey) -> tuple[bool, list[s
     manifest = json.loads(body)
     if manifest.get("key") != fingerprint(pub):
         return False, [f"manifest names key {manifest.get('key')}, not this public key"]
-    lines.append(f"signature ok: key {manifest['key']}, signed {manifest.get('signed_at')}, "
+    lines.append(f"signature ok: key {manifest['key']}, signed {manifest.get('signed_at')} (scanner's clock), "
                  f"keycensus {manifest.get('version')}")  # fmt: skip
     ok = True
+    tsr = out / TIMESTAMP
+    if tsr.exists():
+        from .timestamp import TimestampError  # noqa: PLC0415
+        from .timestamp import verify as verify_ts  # noqa: PLC0415
+
+        try:
+            stamp = verify_ts(tsr.read_bytes(), sig, tsa_ca_file)
+        except TimestampError as exc:
+            return False, lines + [f"timestamp INVALID: {exc}"]
+        trust = "TSA chain verified" if stamp.chain_verified else "TSA NOT verified (pass --tsa-ca-file)"
+        lines.append(f"timestamp ok: existed by {stamp.gen_time.isoformat()} per {stamp.tsa} ({trust})")
+        if require_timestamp and not stamp.chain_verified:
+            ok = False
+    elif require_timestamp:
+        ok = False
+        lines.append("MISSING   manifest.json.tsr (a trusted timestamp was required)")
     for name, digest in manifest.get("files", {}).items():
         p = out / name
         if not p.exists():

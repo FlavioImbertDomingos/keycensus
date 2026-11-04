@@ -162,8 +162,19 @@ def scan(
     if signing_key is not None:
         from .signing import sign_dir
 
-        signed = sign_dir(out, written, signing_key, _manifest_meta(config, policy_path, inv))
+        try:
+            signed = sign_dir(out, written, signing_key, _manifest_meta(config, policy_path, inv),
+                              (config.signing or {}).get("timestamp"))  # fmt: skip
+        except Exception as exc:  # noqa: BLE001 - a required timestamp that failed
+            if audit:
+                audit.write("scan.signing_failed", error=str(exc))
+            raise click.ClickException(str(exc)) from exc
         click.echo(f"signed {out / 'manifest.json'} ({signed['files']} files, key {signed['key']})", err=True)
+        ts = signed.get("timestamp") or {}
+        if ts.get("gen_time"):
+            click.echo(f"timestamped by {ts['url']}: {ts['gen_time']}", err=True)
+        elif ts.get("error"):
+            click.echo(f"warning: no trusted timestamp ({ts['error']})", err=True)
         if audit:
             audit.write("scan.signed", **signed)
     if audit:
@@ -530,12 +541,15 @@ def keygen(prefix):
 @main.command()
 @click.argument("output_dir", type=click.Path(exists=True, file_okay=False))
 @click.option("--public-key", "public_key", required=True, type=click.Path(exists=True))
-def verify(output_dir, public_key):
-    """Check a signed scan folder: signature, then every file's hash. Exit 1 if anything is off."""
+@click.option("--tsa-ca-file", default=None, type=click.Path(exists=True),
+              help="Root(s) of the timestamp authority, to trust manifest.json.tsr.")  # fmt: skip
+@click.option("--require-timestamp", is_flag=True, help="Fail unless a timestamp from a trusted TSA is present.")
+def verify(output_dir, public_key, tsa_ca_file, require_timestamp):
+    """Check a signed scan folder: signature, trusted timestamp, then every file's hash. Exit 1 if anything is off."""
     from .signing import SigningError, load_public_key, verify_dir
 
     try:
-        ok, lines = verify_dir(output_dir, load_public_key(public_key))
+        ok, lines = verify_dir(output_dir, load_public_key(public_key), tsa_ca_file, require_timestamp)
     except SigningError as exc:
         raise click.ClickException(str(exc)) from exc
     for line in lines:

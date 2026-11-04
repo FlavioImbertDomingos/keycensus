@@ -45,7 +45,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlencode
 
+import requests
 from prometheus_client import REGISTRY, generate_latest
 from prometheus_client.exposition import CONTENT_TYPE_LATEST
 
@@ -60,6 +62,7 @@ from .diff import render_json as render_diff_json
 from .exporters import cbom, html_report, json_export
 from .exporters.prometheus import InventoryCollector
 from .notify import NotifyConfig, send
+from .oidc import Oidc, OidcError, parse_cookies, safe_next
 from .scanner import scan
 
 log = logging.getLogger(__name__)
@@ -84,6 +87,7 @@ class ServeSettings:
     allow_unauthenticated: bool = False
     tls_cert: str | None = None
     tls_key: str | None = None
+    oidc: Oidc | None = None
 
     @classmethod
     def from_config(cls, block: dict | None, listen: str | None = None, port: int | None = None,
@@ -117,12 +121,17 @@ class ServeSettings:
         env_token = os.environ.get("KEYCENSUS_SERVE_TOKEN")
         if env_token:
             s.tokens.setdefault("default", hashlib.sha256(env_token.encode()).digest())
+        if auth.get("oidc"):
+            try:
+                s.oidc = Oidc(auth["oidc"])
+            except (OidcError, secrets.SecretError) as exc:
+                raise ConfigError(str(exc)) from exc
         if bool(s.tls_cert) != bool(s.tls_key):
             raise ConfigError("serve.tls needs both cert_file and key_file")
-        if not s.tokens and not s.allow_unauthenticated and not _loopback(s.listen):
+        if not s.tokens and not s.oidc and not s.allow_unauthenticated and not _loopback(s.listen):
             raise ConfigError(
                 f"refusing to serve the report and CBOM on {s.listen} without authentication. Add a token "
-                "(serve.auth.tokens, or $KEYCENSUS_SERVE_TOKEN), listen on 127.0.0.1, or set "
+                "(serve.auth.tokens, or $KEYCENSUS_SERVE_TOKEN) or serve.auth.oidc, listen on 127.0.0.1, or set "
                 "serve.allow_unauthenticated: true if something in front of keycensus does the auth."
             )
         return s
@@ -148,6 +157,10 @@ class ServeSettings:
         return found
 
 
+def _bytes(body: str | bytes) -> bytes:
+    return body if isinstance(body, bytes) else body.encode()
+
+
 def _loopback(host: str) -> bool:
     if host in ("localhost", ""):
         return host == "localhost"
@@ -160,7 +173,7 @@ def _loopback(host: str) -> bool:
 class State:
     def __init__(self):
         self.lock = threading.Lock()
-        self.outputs: dict[str, tuple[str, str]] = {}  # path -> (content-type, body)
+        self.outputs: dict[str, tuple[str, str | bytes]] = {}  # path -> (content-type, body)
         self.ready = False
         self.previous: dict | None = None  # last scan, for the change diff
 
@@ -214,7 +227,7 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
                 **change_outputs,
             }
             if signing_key is not None:
-                from .signing import build_manifest  # noqa: PLC0415
+                from .signing import build_manifest, stamp_signature  # noqa: PLC0415
 
                 files = {p.lstrip("/"): b.encode() for p, (_, b) in rendered.items()}
                 meta = {"generated_at": inv.to_dict()["generated_at"], "config_sha256": config.config_sha256,
@@ -222,13 +235,17 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
                 body, sig = build_manifest(files, signing_key, meta)
                 rendered["/manifest.json"] = ("application/json", body.decode())
                 rendered["/manifest.json.sig"] = ("text/plain", sig.decode())
+                tsr, ts_info = stamp_signature(sig, (config.signing or {}).get("timestamp"))
+                if tsr:
+                    rendered["/manifest.json.tsr"] = ("application/timestamp-reply", tsr)
                 if audit:
-                    audit.write("scan.signed", manifest_sha256=hashlib.sha256(body).hexdigest(), files=len(files))
+                    audit.write("scan.signed", manifest_sha256=hashlib.sha256(body).hexdigest(), files=len(files),
+                                **({"timestamp": ts_info} if ts_info else {}))  # fmt: skip
             if audit:
                 audit.scan_finished(
                     inv,
                     time.perf_counter() - started,
-                    {p.lstrip("/"): hashlib.sha256(b.encode()).hexdigest() for p, (_, b) in rendered.items()},
+                    {p.lstrip("/"): hashlib.sha256(_bytes(b)).hexdigest() for p, (_, b) in rendered.items()},
                 )
             with state.lock:
                 state.outputs = rendered
@@ -263,7 +280,8 @@ def _maybe_notify(config: Config, changes, audit: AuditLog | None = None) -> Non
 
 def make_handler(state: State, settings: ServeSettings | None = None, audit: AuditLog | None = None):
     settings = settings or ServeSettings(allow_unauthenticated=True)
-    open_access = settings.allow_unauthenticated and not settings.tokens
+    open_access = settings.allow_unauthenticated and not settings.tokens and not settings.oidc
+    oidc = settings.oidc
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "keycensus"
@@ -273,26 +291,24 @@ def make_handler(state: State, settings: ServeSettings | None = None, audit: Aud
             log.debug("%s " + fmt, self.address_string(), *args)
 
         def do_GET(self):  # noqa: N802
-            path = self.path.split("?", 1)[0]
+            path, _, query = self.path.partition("?")
             if path == "/livez":
                 return self._send(200, "text/plain", b"alive\n")
-            who = "public" if path in settings.public_paths else settings.who(self.headers.get("Authorization"))
-            if who is None and open_access:
-                who = "anonymous"
+            if oidc and path in ("/login", oidc.callback_path, "/logout"):
+                return self._oidc_route(path, query)
+            who, reason = self._authenticate(path)
             if who is None:
                 if audit:
-                    audit.write(
-                        "serve.denied",
-                        path=path,
-                        client=self.client_address[0],
-                        reason="no token" if not self.headers.get("Authorization") else "invalid token",
-                    )
-                return self._send(
-                    401,
-                    "text/plain",
-                    b"authentication required\n",
-                    extra={"WWW-Authenticate": 'Basic realm="keycensus", charset="UTF-8"'},
-                )
+                    audit.write("serve.denied", path=path, client=self.client_address[0], reason=reason)
+                browser = "text/html" in (self.headers.get("Accept") or "") and not self.headers.get("Authorization")
+                if oidc and oidc.redirect_url and browser:
+                    return self._redirect(f"/login?{urlencode({'next': path})}")
+                challenge = (
+                    'Bearer realm="keycensus"' if oidc and not settings.tokens
+                    else 'Basic realm="keycensus", charset="UTF-8"'
+                )  # fmt: skip
+                return self._send(401, "text/plain", b"authentication required\n",
+                                  extra={"WWW-Authenticate": challenge})  # fmt: skip
             if path == "/metrics":
                 body = generate_latest(REGISTRY)
                 return self._send(200, CONTENT_TYPE_LATEST, body)
@@ -313,7 +329,60 @@ def make_handler(state: State, settings: ServeSettings | None = None, audit: Aud
             ctype, body = hit
             if audit and who != "public":
                 audit.write("serve.read", path=path, status=200, token=who, client=self.client_address[0])
-            return self._send(200, ctype, body.encode())
+            return self._send(200, ctype, _bytes(body))
+
+        def _authenticate(self, path: str) -> tuple[str | None, str]:
+            if path in settings.public_paths:
+                return "public", ""
+            header = self.headers.get("Authorization")
+            name = settings.who(header)
+            if name:
+                return name, ""
+            if oidc and header and header.lower().startswith("bearer "):
+                who, why = oidc.bearer(header.split(" ", 1)[1].strip())
+                if who:
+                    return who, ""
+                if not settings.tokens:
+                    return None, f"bearer token rejected: {why}"
+            if oidc:
+                who = oidc.session(parse_cookies(self.headers.get("Cookie")))
+                if who:
+                    return who, ""
+            if open_access:
+                return "anonymous", ""
+            return None, "no credentials" if not header else "invalid token"
+
+        def _oidc_route(self, path: str, query: str):
+            client = self.client_address[0]
+            try:
+                if path == "/login":
+                    location, cookie = oidc.login(safe_next(parse_qs(query).get("next", ["/"])[0]))
+                    return self._redirect(location, [cookie])
+                if path == "/logout":
+                    who = oidc.session(parse_cookies(self.headers.get("Cookie")))
+                    if audit and who:
+                        audit.write("serve.logout", identity=who, client=client)
+                    return self._send(200, "text/plain", b"signed out\n", extra={"Set-Cookie": oidc.logout_cookie()})
+                params = {k: v[0] for k, v in parse_qs(query).items()}
+                who, nxt, cookies = oidc.callback(params, parse_cookies(self.headers.get("Cookie")))
+                if audit:
+                    audit.write("serve.login", identity=who, client=client)
+                return self._redirect(nxt, cookies)
+            except (OidcError, requests.RequestException) as exc:
+                log.warning("OIDC %s failed: %s", path, exc)
+                if audit:
+                    audit.write("serve.login_failed", path=path, client=client, reason=str(exc))
+                return self._send(403, "text/plain", f"sign-in failed: {exc}\n".encode())
+
+        def _redirect(self, location: str, cookies: list[str] | None = None):
+            self.send_response(302)
+            self.send_header("Location", location)
+            for c in cookies or []:
+                self.send_header("Set-Cookie", c)
+            for k, v in SECURITY_HEADERS.items():
+                self.send_header(k, v)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def _send(self, code: int, ctype: str, body: bytes, extra: dict | None = None):
             self.send_response(code)
@@ -347,9 +416,15 @@ def serve(config: Config, policy: Policy, settings: ServeSettings, interval_seco
         ctx.load_cert_chain(settings.tls_cert, settings.tls_key)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
         scheme = "https"
-    access = (f"{len(settings.tokens)} token(s): {', '.join(sorted(settings.tokens))}" if settings.tokens
-              else "NO AUTHENTICATION (allow_unauthenticated)" if settings.allow_unauthenticated
-              else "loopback only, no tokens")  # fmt: skip
+    parts = []
+    if settings.tokens:
+        parts.append(f"{len(settings.tokens)} token(s): {', '.join(sorted(settings.tokens))}")
+    if settings.oidc:
+        parts.append(f"OIDC {settings.oidc.issuer}")
+    if not parts:
+        parts.append("NO AUTHENTICATION (allow_unauthenticated)" if settings.allow_unauthenticated
+                     else "loopback only, no tokens")  # fmt: skip
+    access = "; ".join(parts)
     log.info("keycensus serving on %s://%s:%d/ (%s; public: %s)", scheme, settings.listen, settings.port, access,
              ", ".join(settings.public_paths) or "none")  # fmt: skip
     try:

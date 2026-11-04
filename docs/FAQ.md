@@ -70,6 +70,13 @@ Turn on `signing:`. Each scan writes `manifest.json` (a SHA-256 per output file)
 `manifest.json.sig`. The assessor runs `keycensus verify <folder> --public-key keycensus-signing.pub.pem`;
 any changed byte, missing file or other key fails it.
 
+**Which timestamp authority should I use?**
+Any RFC 3161 TSA. DigiCert (`http://timestamp.digicert.com`) and Sectigo run free public ones whose roots
+are in the usual system bundles, so `ca_file: /etc/ssl/certs/ca-certificates.crt` works for them.
+FreeTSA (`https://freetsa.org/tsr`) publishes its root at freetsa.org. List two in `urls` so one outage
+does not leave a scan unstamped, and set `required: true` if an unstamped scan should fail. Only the hash
+of the signature leaves your network.
+
 **Can I use it without Docker?**
 `pip install "keycensus[all]"` and `keycensus scan -c config.yml`. Docker is only for the demo
 stack and the container image. The PKCS#11 extra needs the vendor library on the host.

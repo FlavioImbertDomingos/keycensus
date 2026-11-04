@@ -189,9 +189,10 @@ running (`keycensus serve -c ... --interval 6h`) and point Prometheus at `:9742/
 never reads key values, only public attributes. Least-privilege policies for every source are in
 [`deploy/`](deploy/README.md) and [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
 
-**Safe to leave running.** `serve` needs a token for the report and CBOM, can serve HTTPS, and with
-`audit:` and `signing:` keeps a hash-chained log of who read what and signs every scan so an assessor
-can verify it was not changed. Credentials can come from Vault, AWS Secrets Manager, Azure Key Vault or
+**Safe to leave running.** `serve` needs a token or a sign-in through your identity provider (OIDC)
+for the report and CBOM, can serve HTTPS, and with `audit:` and `signing:` keeps a hash-chained log of
+who read what and signs every scan, with an RFC 3161 timestamp, so an assessor can verify it was not
+changed and when it existed. Credentials can come from Vault, AWS Secrets Manager, Azure Key Vault or
 GCP Secret Manager. See [SECURITY.md](SECURITY.md).
 
 ---
@@ -234,7 +235,7 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class, **and change counters** |
 | `diff.json` / `diff.md` | Change review, CI gates | With `--baseline previous/inventory.json`: assets added / removed / changed, findings new / resolved, sources broken |
 | `changes.json` | Alerting | Each change classified into a kind with an urgency: what should page, what waits for the weekly digest |
-| `manifest.json` + `.sig` | Assessors, evidence | With `signing:`: the SHA-256 of every output and an Ed25519 signature over them; `keycensus verify` checks it |
+| `manifest.json` + `.sig` (+ `.tsr`) | Assessors, evidence | With `signing:`: the SHA-256 of every output, an Ed25519 signature over them, and with `signing.timestamp` an RFC 3161 timestamp on the signature; `keycensus verify` checks it |
 | `audit.jsonl` | Security, assessors | With `audit:`: every scan, config change, report read (by token name), refused request and webhook, hash-chained |
 | Applications (in all of the above) | Incident response, ownership | `applications:` + SBOMs → which app uses which key; CBOM gets `application` components with `dependsOn` → keys; `unlinked-asset` findings for orphans |
 
@@ -378,6 +379,9 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
   If you run Voltage and can share a redacted export, that is the most useful issue you can open.
 - **The TLS key exchange probe** was tested against OpenSSL 3.5 (Node 22) and Go 1.24 TLS servers, and the
   SSH probe against OpenSSH 9.6. Live internet endpoints were not part of the test run.
+- **OIDC** was tested end to end against `oidc-provider` (a certified OpenID provider): browser sign-in,
+  userinfo claims, logout, a refused user and client-credentials JWTs. **Timestamps** were verified against
+  FreeTSA and DigiCert's public TSAs, and cross-checked with `openssl ts -verify`.
 - **Cloud auto-discovery is mock-tested.** AWS Organizations runs against moto's Organizations, STS and KMS;
   Azure subscription and GCP project discovery against recorded API responses. None has run against a real
   organization yet.
@@ -410,8 +414,8 @@ Next, in order. The first three are the next three releases.
 - [x] Credentials from Vault, AWS Secrets Manager, Azure Key Vault or GCP Secret Manager *(0.8.0)*
 - [x] Hash-chained audit log: scans with credential references, config and policy changes, report and CBOM reads by token name, refused requests, webhooks *(0.8.0)*
 - [x] Signed scan records: Ed25519-signed manifest of every output, checked with `keycensus verify` *(0.8.0)*
-- [ ] OIDC login for `serve` (today: tokens, or an authenticating proxy in front with `allow_unauthenticated`)
-- [ ] RFC 3161 or Sigstore timestamps on scan manifests, so the signing time does not rest on the scanner's clock
+- [x] OIDC login for `serve`: browser sign-in with PKCE and machine JWTs, allow-listed by email, domain, group or subject *(0.9.0)*
+- [x] RFC 3161 timestamps on scan manifests, so the signing time does not rest on the scanner's clock *(0.9.0)*
 
 ### 2. Easy to start
 
