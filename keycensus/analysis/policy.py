@@ -18,6 +18,7 @@ from ..model import (
     ALG_DES,
     ALG_RC4,
     ALG_UNKNOWN,
+    KIND_ALGORITHM,
     KIND_CERTIFICATE,
     KIND_KEY,
     KIND_PROTOCOL,
@@ -28,7 +29,7 @@ from ..model import (
 )
 from . import strength
 
-WEAK_ALGORITHMS = {ALG_DES, ALG_RC4, ALG_3DES}
+WEAK_ALGORITHMS = {ALG_DES, ALG_RC4, ALG_3DES} | strength.LEGACY_CIPHERS
 WEAK_HASHES = {"MD2", "MD4", "MD5", "SHA1", "SHA-1"}
 WEAK_TLS_VERSIONS = {"SSLv2", "SSLv3", "TLSv1", "TLSv1.0", "TLSv1.1"}
 WEAK_CIPHER_MARKERS = ("RC4", "3DES", "DES-CBC", "NULL", "EXPORT", "anon", "MD5", "RC2", "IDEA")
@@ -113,7 +114,7 @@ Rule = Callable[[Policy, CryptoAsset], Iterable[Finding]]
 
 # ---------------------------------------------------------------- rules
 def rule_weak_algorithm(p: Policy, a: CryptoAsset):
-    if a.kind in (KIND_KEY, KIND_CERTIFICATE) and a.algorithm in WEAK_ALGORITHMS:
+    if a.kind in (KIND_KEY, KIND_CERTIFICATE, KIND_ALGORITHM) and a.algorithm in WEAK_ALGORITHMS:
         yield _f(p, "weak-algorithm", a,
                  f"{a.algorithm} is a broken or deprecated algorithm",
                  f"{a.name} uses {a.display_algorithm}. {strength.assess(a).note}",
@@ -122,7 +123,7 @@ def rule_weak_algorithm(p: Policy, a: CryptoAsset):
 
 
 def rule_weak_key_size(p: Policy, a: CryptoAsset):
-    if a.kind in (KIND_KEY, KIND_CERTIFICATE) and strength.is_weak_key_size(a):
+    if a.kind in (KIND_KEY, KIND_CERTIFICATE, KIND_ALGORITHM) and strength.is_weak_key_size(a):
         yield _f(p, "weak-key-size", a,
                  f"{a.display_algorithm} is below the strong-cryptography minimum",
                  f"{a.name}: PCI DSS strong cryptography requires RSA/DSA/DH ≥ 2048, ECC ≥ 224, AES ≥ 128 bits.",
@@ -164,8 +165,13 @@ def rule_rotation_disabled(p: Policy, a: CryptoAsset):
                  ["PCI-DSS-4.0:3.7.4"], default_sev="low")  # fmt: skip
 
 
+def _hardcoded(a: CryptoAsset) -> bool:
+    """A key committed to source: hardcoded-private-key says everything; storage findings would repeat it."""
+    return bool((a.extra or {}).get("hardcoded"))
+
+
 def rule_no_creation_date(p: Policy, a: CryptoAsset):
-    if a.kind == KIND_KEY and a.created is None and a.last_rotated is None:
+    if a.kind == KIND_KEY and a.created is None and a.last_rotated is None and not _hardcoded(a):
         yield _f(p, "no-creation-date", a,
                  "No creation date: cryptoperiod cannot be assessed",
                  f"{a.name} in {a.source} reports no creation/rotation timestamp.",
@@ -215,7 +221,7 @@ def rule_cert_long_validity(p: Policy, a: CryptoAsset):
 
 
 def rule_key_exportable(p: Policy, a: CryptoAsset):
-    if a.kind == KIND_KEY and a.exportable is True and a.key_type != "public-key":
+    if a.kind == KIND_KEY and a.exportable is True and a.key_type != "public-key" and not _hardcoded(a):
         yield _f(p, "key-exportable", a, "Key is marked exportable / extractable",
                  f"{a.name} in {a.source} can be exported in plaintext or wrapped form.",
                  "Unless there is a documented backup/escrow need, regenerate as non-exportable.",
@@ -224,7 +230,7 @@ def rule_key_exportable(p: Policy, a: CryptoAsset):
 
 def rule_key_software_backed(p: Policy, a: CryptoAsset):
     if (a.kind == KIND_KEY and a.hardware_backed is False and a.key_type != "public-key"
-            and set(a.purposes) & PROTECTIVE_PURPOSES):  # fmt: skip
+            and set(a.purposes) & PROTECTIVE_PURPOSES and not _hardcoded(a)):  # fmt: skip
         yield _f(p, "key-software-backed", a, "Key material lives in software, not an HSM",
                  f"{a.name} in {a.source} is not hardware-backed.",
                  "Move high-value keys (KEKs, PAN-encrypting keys, CA keys) into an HSM or a KMS with HSM backing.",
@@ -245,7 +251,8 @@ def rule_quantum(p: Policy, a: CryptoAsset):
     s = strength.assess(a)
     if s.quantum_class == strength.QUANTUM_VULNERABLE and a.algorithm not in WEAK_ALGORITHMS:
         # Certificates only carry public keys: the exposure is signature forgery, not decryption.
-        encrypts = a.kind == KIND_KEY and bool({"encrypt", "decrypt", "wrap", "unwrap", "derive"} & set(a.purposes))
+        encrypts = a.kind in (KIND_KEY, KIND_ALGORITHM) and bool({"encrypt", "decrypt", "wrap", "unwrap", "derive"}
+                                                                  & set(a.purposes))  # fmt: skip
         if encrypts:
             yield _f(p, "quantum-vulnerable-encryption", a,
                      f"{a.display_algorithm} protects confidentiality and is quantum-vulnerable",
@@ -367,6 +374,96 @@ def rule_tls(p: Policy, a: CryptoAsset):
                  ["PCI-DSS-4.0:4.2.1"], default_sev="low")  # fmt: skip
 
 
+def _where(a: CryptoAsset) -> str:
+    """'3 call sites in 2 files, e.g. src/app.py:12' for code-scanning assets."""
+    ex = a.extra or {}
+    occ = ex.get("occurrences") or []
+    if not occ:
+        return a.location
+    first = occ[0]
+    tests = " (tests only)" if ex.get("only_in_tests") else ""
+    return (
+        f"{ex.get('occurrence_count', len(occ))} call site(s) in {ex.get('files', 1)} file(s){tests}, "
+        f"e.g. {first['file']}:{first['line']}"
+    )
+
+
+def rule_weak_hash(p: Policy, a: CryptoAsset):
+    if a.kind == KIND_ALGORITHM and a.algorithm in strength.BROKEN_HASHES:
+        yield _f(p, "weak-hash", a, f"Code uses {a.algorithm}",
+                 f"{a.name}: {_where(a)}. {strength.assess(a).note}",
+                 "Use SHA-256 or SHA-3. If a use is not security-relevant (a cache key, a checksum against "
+                 "accidents), mark the line with `keycensus:ignore` (in Python also pass usedforsecurity=False).",
+                 ["NIST-SP-800-131A", "PCI-DSS-4.0:3.5.1", "PCI-DSS-4.0:12.3.3"])  # fmt: skip
+
+
+def rule_weak_cipher_mode(p: Policy, a: CryptoAsset):
+    if a.kind == KIND_ALGORITHM and (a.extra or {}).get("mode") == "ECB":
+        yield _f(p, "weak-cipher-mode", a, f"{a.algorithm} in ECB mode",
+                 f"{a.name}: {_where(a)}. ECB encrypts equal blocks to equal ciphertext, so patterns in the data "
+                 "show through. In Java, Cipher.getInstance(\"AES\") with no mode means AES/ECB.",
+                 "Use an authenticated mode: AES-GCM (or AES-GCM-SIV / ChaCha20-Poly1305), with a unique nonce.",
+                 ["PCI-DSS-4.0:3.5.1", "NIST-SP-800-131A"], default_sev="high")  # fmt: skip
+
+
+def rule_hardcoded_private_key(p: Policy, a: CryptoAsset):
+    ex = a.extra or {}
+    if a.kind == KIND_KEY and ex.get("hardcoded"):
+        test = (
+            " It is under a test path; if it is a throwaway test key, say so in the exception."
+            if ex.get("test_path")
+            else ""
+        )
+        yield _f(p, "hardcoded-private-key", a, f"{a.display_algorithm} private key committed to source",
+                 f"{ex.get('file')}:{ex.get('line')} in {ex.get('repository')} holds a private key. Anyone with read "
+                 f"access to the repository, its forks, CI logs or build artefacts has it.{test}",
+                 "Treat the key as compromised: revoke or rotate it, remove it from the tree and from git history, "
+                 "and load the replacement from a secret store or KMS at run time.",
+                 ["PCI-DSS-4.0:3.6.1", "PCI-DSS-4.0:3.7.3"], default_sev="critical")  # fmt: skip
+
+
+def rule_keystore_weak_protection(p: Policy, a: CryptoAsset):
+    reasons = (a.extra or {}).get("keystore_weak_protection") or []
+    if reasons and a.kind == KIND_KEY:
+        yield _f(p, "keystore-weak-protection", a, "Keystore protection is weak",
+                 f"{a.name}: {'; '.join(reasons)}.",
+                 "Convert to PKCS#12 with AES-256 and HMAC-SHA-256 (keytool -importkeystore -deststoretype pkcs12, "
+                 "or openssl pkcs12 -export without -legacy) and a password from a secret store.",
+                 ["PCI-DSS-4.0:3.6.1", "PCI-DSS-4.0:3.7.3"])  # fmt: skip
+
+
+def rule_ct_unexpected_issuer(p: Policy, a: CryptoAsset):
+    ex = a.extra or {}
+    if a.kind == KIND_CERTIFICATE and ex.get("unexpected_issuer"):
+        yield _f(p, "ct-unexpected-issuer", a, f"Public certificate from an unexpected CA: {a.issuer}",
+                 f"Certificate Transparency shows a certificate for {', '.join(ex.get('dns_names') or [a.name])} "
+                 f"issued by {a.issuer}, which is not in expected_issuers "
+                 f"({', '.join(ex.get('expected_issuers') or [])}).",
+                 "Find out who requested it. If nobody in the organisation did, have the CA revoke it and add CAA "
+                 "records that name only your CAs.",
+                 ["PCI-DSS-4.0:4.2.1"], default_sev="high")  # fmt: skip
+
+
+def rule_ldap_cleartext(p: Policy, a: CryptoAsset):
+    ex = a.extra or {}
+    if a.kind == KIND_PROTOCOL and a.protocol == "LDAP" and ex.get("starttls_error"):
+        yield _f(p, "ldap-cleartext", a, "LDAP server refuses StartTLS",
+                 f"{a.name}: {ex['starttls_error']}. Simple binds to this server send passwords in the clear.",
+                 "Install a server certificate (AD: an LDAPS certificate in the DC's personal store; OpenLDAP: "
+                 "olcTLSCertificateFile), then require TLS (LDAP signing / channel binding, or olcSecurity tls=1).",
+                 ["PCI-DSS-4.0:4.2.1", "PCI-DSS-4.0:12.3.3"])  # fmt: skip
+
+
+def rule_key_reuse_on_renewal(p: Policy, a: CryptoAsset):
+    cm = (a.extra or {}).get("cert_manager") or {}
+    if a.kind == KIND_CERTIFICATE and cm.get("rotation_policy") == "Never":
+        yield _f(p, "key-reuse-on-renewal", a, "Private key is reused at every renewal",
+                 f"cert-manager Certificate {cm.get('certificate')} has privateKey.rotationPolicy: Never, so the "
+                 "same key stays in use however often the certificate renews.",
+                 "Set spec.privateKey.rotationPolicy: Always (the default from cert-manager 1.18).",
+                 ["PCI-DSS-4.0:3.7.4", "NIST-SP-800-57"], default_sev="low")  # fmt: skip
+
+
 RULES: dict[str, Rule] = {
     "weak-algorithm": rule_weak_algorithm,
     "weak-key-size": rule_weak_key_size,
@@ -386,16 +483,42 @@ RULES: dict[str, Rule] = {
     "key-exchange": rule_key_exchange,
     "ssh": rule_ssh,  # emits ssh-weak-algorithm  # emits quantum-vulnerable-key-exchange / hybrid-key-exchange
     "adcs-template-weak-key-size": rule_adcs_template_weak_key_size,
+    "weak-hash": rule_weak_hash,
+    "weak-cipher-mode": rule_weak_cipher_mode,
+    "hardcoded-private-key": rule_hardcoded_private_key,
+    "keystore-weak-protection": rule_keystore_weak_protection,
+    "ct-unexpected-issuer": rule_ct_unexpected_issuer,
+    "ldap-cleartext": rule_ldap_cleartext,
+    "key-reuse-on-renewal": rule_key_reuse_on_renewal,
 }
+
+
+def public_halves(assets: Iterable[CryptoAsset]) -> set[str]:
+    """Ids of public keys that are the public half of a private key in the same source: by name (HSMs, KMS),
+    or by SSH fingerprint for an id_rsa.pub / ssh_host_*_key.pub next to its private key. known_hosts and
+    authorized_keys entries are trust records elsewhere, so they stay."""
+    assets = list(assets)
+    names = {(a.source, a.name) for a in assets if a.key_type == "private-key"}
+    fps = {(a.source, (a.extra or {}).get("ssh_fingerprint")) for a in assets
+           if a.key_type == "private-key" and (a.extra or {}).get("ssh_fingerprint")}  # fmt: skip
+    out = set()
+    for a in assets:
+        if a.kind != KIND_KEY or a.key_type != "public-key":
+            continue
+        ex = a.extra or {}
+        if (a.source, a.name) in names or (
+            ex.get("ssh_role") in ("host-key", "user-key") and (a.source, ex.get("ssh_fingerprint")) in fps
+        ):
+            out.add(a.id)
+    return out
 
 
 def evaluate(assets: Iterable[CryptoAsset], policy: Policy) -> list[Finding]:
     assets = list(assets)
-    # The public half of a key pair is the same key: don't report it twice.
-    private_pairs = {(a.source, a.name) for a in assets if a.key_type == "private-key"}
+    skip = public_halves(assets)  # the public half of a key pair is the same key: don't report it twice
     findings: list[Finding] = []
     for asset in assets:
-        if asset.key_type == "public-key" and (asset.source, asset.name) in private_pairs:
+        if asset.id in skip:
             continue
         for rule in RULES.values():
             for finding in rule(policy, asset):

@@ -13,6 +13,9 @@ Mapping:
                              (+ signatureAlgorithmRef, subjectPublicKeyRef)
     protocol (TLS endpoint)  cryptoProperties.assetType = protocol
                              (+ cipherSuites)
+    algorithm (code scan)    cryptoProperties.assetType = algorithm, with every call site as
+                             evidence.occurrences (location = file, line, additionalContext = API)
+    hard-coded key           related-crypto-material, with the file and line as evidence.occurrences
     finding                  vulnerabilities[] entry with `affects` -> the component
     application (linked)     component type: application (name, version, purl, bom-ref from its
                              SBOM) + dependencies[].dependsOn -> the crypto assets it uses; the
@@ -30,7 +33,7 @@ import uuid
 from .. import __version__
 from ..analysis import strength
 from ..analysis.controls import describe
-from ..model import KIND_CERTIFICATE, KIND_KEY, KIND_PROTOCOL, CryptoAsset, Inventory, iso
+from ..model import KIND_ALGORITHM, KIND_CERTIFICATE, KIND_KEY, KIND_PROTOCOL, CryptoAsset, Inventory, iso
 
 _CDX_STATES = {"pre-activation", "active", "suspended", "deactivated", "compromised", "destroyed"}
 SEVERITY_TO_CDX = {
@@ -79,7 +82,7 @@ def _algorithm_component(asset: CryptoAsset) -> dict:
 def _fn(purpose: str) -> str | None:
     return {
         "encrypt": "encrypt", "decrypt": "decrypt", "sign": "sign", "verify": "verify",
-        "wrap": "encrypt", "unwrap": "decrypt", "derive": "keyderive", "mac": "tag",
+        "wrap": "encrypt", "unwrap": "decrypt", "derive": "keyderive", "mac": "tag", "digest": "digest",
     }.get(purpose)  # fmt: skip
 
 
@@ -101,7 +104,7 @@ def _key_component(asset: CryptoAsset) -> dict:
         rcm["size"] = asset.key_size
     if asset.hardware_backed is not None:
         rcm["securedBy"] = {"mechanism": "HSM" if asset.hardware_backed else "Software"}
-    return {
+    comp = {
         "type": "cryptographic-asset",
         "bom-ref": asset.id,
         "name": asset.name,
@@ -112,6 +115,38 @@ def _key_component(asset: CryptoAsset) -> dict:
         },
         "properties": _props(asset),
     }
+    ex = asset.extra or {}
+    if ex.get("hardcoded"):
+        occ = {"location": ex.get("file") or asset.location, "line": int(ex.get("line") or 1),
+               "additionalContext": "hard-coded private key"}  # fmt: skip
+        comp["evidence"] = {"occurrences": [occ]}
+        comp["properties"].append({"name": "keycensus:hardcoded", "value": "true"})
+    return comp
+
+
+_CDX_MODES = {"CBC", "ECB", "CCM", "GCM", "CFB", "OFB", "CTR"}
+
+
+def _code_algorithm_component(asset: CryptoAsset) -> dict:
+    """An algorithm the code calls, with its call sites as CycloneDX evidence."""
+    comp = _algorithm_component(asset)
+    ex = asset.extra or {}
+    mode = ex.get("mode")
+    if mode:
+        comp["cryptoProperties"]["algorithmProperties"]["mode"] = mode.lower() if mode in _CDX_MODES else "other"
+    comp.update({
+        "bom-ref": asset.id,
+        "name": asset.display_algorithm + (f"/{mode}" if mode else ""),
+        "description": asset.name,
+        "evidence": {"occurrences": [
+            {"location": o["file"], "line": int(o["line"]), "additionalContext": f"{o['api']} ({o['language']})"}
+            for o in ex.get("occurrences") or []]},
+    })  # fmt: skip
+    comp["properties"] = _props(asset) + [
+        {"name": "keycensus:occurrences", "value": str(ex.get("occurrence_count", 0))},
+        {"name": "keycensus:repository", "value": str(ex.get("repository") or asset.location)},
+    ] + ([{"name": "keycensus:onlyInTests", "value": "true"}] if ex.get("only_in_tests") else [])  # fmt: skip
+    return comp
 
 
 def _cert_component(asset: CryptoAsset, sig_ref: str | None) -> dict:
@@ -245,6 +280,8 @@ def build(inv: Inventory) -> dict:
             components[a.id] = _cert_component(a, sig["bom-ref"] if sig else None)
         elif a.kind == KIND_PROTOCOL:
             components[a.id] = _protocol_component(a)
+        elif a.kind == KIND_ALGORITHM:
+            components[a.id] = _code_algorithm_component(a)
 
     for app in inv.applications:
         components[app.ref] = _application_component(app)

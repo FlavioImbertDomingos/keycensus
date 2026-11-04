@@ -4,8 +4,9 @@
 
 One command scans your HSMs (PKCS#11, CipherTrust Manager, KeySafe 5), Vault, AWS KMS, Azure Key Vault /
 Managed HSM, Google Cloud KMS (one account, or every account, subscription and project in your organization),
-Voltage, Microsoft AD CS, certificate folders, TLS and SSH endpoints and whole network ranges, and grades every
-asset against
+Voltage, Microsoft AD CS, Kubernetes secrets and cert-manager, keystores and SSH keys on disk, source code,
+Certificate Transparency logs, TLS, LDAP and SSH endpoints and whole network ranges, and grades every asset
+against
 **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the **NIST IR 8547** post-quantum timeline.
 
 It answers three questions, not one: **what do we have** — a standards-based CBOM (CycloneDX 1.6), an HTML
@@ -163,15 +164,26 @@ sources:
     username: svc-keycensus@corp.example.com
     password_env: ADCS_LDAP_PASSWORD
     exports: [/exports/corp-issuing-ca1.csv]
-  - name: app-certs
-    type: pem
-    paths: [/etc/ssl/app]
+  - name: app-certs               # PEM/DER, PKCS#12, JKS/JCEKS, SSH keys and certificates
+    type: files
+    paths: [/etc/ssl/app, /opt/kafka/config, /etc/ssh]
+    keystore_passwords: [{password_env: KAFKA_KEYSTORE_PASSWORD}]
   - name: edges
     type: tls
-    endpoints: ["api.example.com:443"]
-  - name: dc-east                 # find TLS, LDAPS and SSH endpoints nobody listed
+    endpoints: ["api.example.com:443", "ldap://dc01.corp.example.com"]   # ldap:// = StartTLS on 389
+  - name: dc-east                 # find TLS, LDAP (StartTLS and LDAPS) and SSH endpoints nobody listed
     type: network
     cidrs: [10.20.0.0/22]
+  - name: prod-cluster            # TLS and Opaque secrets, cert-manager Certificates, who mounts each
+    type: kubernetes
+    context: prod
+  - name: public-certs            # every public certificate CT logs hold for your domains
+    type: ct
+    domains: [example.com]
+    expected_issuers: ["Let's Encrypt", "DigiCert"]
+  - name: payments-repo           # hard-coded keys and crypto API calls
+    type: code
+    paths: [/src/payments-api]
 
 # Optional: join your SBOMs to the keys each application uses (see below).
 applications:
@@ -218,6 +230,12 @@ GCP Secret Manager. See [SECURITY.md](SECURITY.md).
 | SSH server offers SHA-1, DSA, CBC, RC4, 3DES or MD5 algorithms | high | NIST 800-131A; PCI 12.3.3 |
 | No creation date (cryptoperiod unknowable) | info | PCI 12.3.3, 3.6.1.1 |
 | AD CS CA publishes a template that allows weak keys | medium | PCI 3.7.1; NIST 800-131A |
+| Private key or keystore committed to a source tree | critical | PCI 3.6.1, 3.7.3 |
+| Code calls MD5 or SHA-1 / uses ECB mode (incl. Java's `Cipher.getInstance("AES")`) | medium / high | NIST 800-131A; PCI 3.5.1 |
+| Keystore is JKS/JCEKS, legacy PKCS#12 (RC2, 3DES, SHA-1 MAC), or opens with no password or `changeit` | medium | PCI 3.6.1, 3.7.3 |
+| Public certificate in CT logs from a CA not in `expected_issuers` | high | PCI 4.2.1 |
+| LDAP server on 389 refuses StartTLS | medium | PCI 4.2.1, 12.3.3 |
+| cert-manager reuses the private key at every renewal (`rotationPolicy: Never`) | low | PCI 3.7.4; NIST 800-57 |
 
 All thresholds and severities live in one YAML: [`keycensus/data/default-policy.yml`](keycensus/data/default-policy.yml).
 Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/POLICY.md).
@@ -276,9 +294,10 @@ now, what stops working?* keycensus answers it from two kinds of evidence.
 
 **Inferred**, from the key store itself: AWS KMS grants and key-policy principals, GCP IAM bindings, Azure
 role assignments and access policies, Vault ACL policies granting `transit/<op>/<key>`, CipherTrust
-application and owner, the account that enrolled for an AD CS certificate. Six of the thirteen collectors can
-do this; PKCS#11, PEM, TLS, SSH, network discovery, Voltage and KeySafe 5 have no notion of a consumer, so
-those keys are declared instead.
+application and owner, the account that enrolled for an AD CS certificate, the pods and ingresses that mount a
+Kubernetes secret. Seven of the sixteen collectors can do this; PKCS#11, files, TLS, SSH, network discovery,
+Certificate Transparency, code, Voltage and KeySafe 5 have no notion of a consumer, so those keys are declared
+instead.
 
 **Declared**, from your SBOMs — CycloneDX or SPDX 2.2/2.3 JSON:
 
@@ -382,6 +401,18 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - **OIDC** was tested end to end against `oidc-provider` (a certified OpenID provider): browser sign-in,
   userinfo claims, logout, a refused user and client-credentials JWTs. **Timestamps** were verified against
   FreeTSA and DigiCert's public TSAs, and cross-checked with `openssl ts -verify`.
+- **LDAP StartTLS** was tested against OpenLDAP `slapd`, with and without a certificate. **Certificate
+  Transparency** was run live against the Cert Spotter API; the tests replay one of its real responses.
+  crt.sh is supported but was returning errors during development, so its tests use recorded shapes.
+- **Keystores and SSH keys** are tested on files made by `keytool` (JKS, JCEKS with a secret key, PKCS#12),
+  `openssl` (legacy and current PKCS#12) and `ssh-keygen` (keys, authorized_keys, known_hosts, certificates);
+  SSH fingerprints match `ssh-keygen -l`.
+- **The Kubernetes collector is mock-tested.** It uses the official Python client against a local server that
+  answers in the API's shapes (secrets, pods, ingresses, cert-manager resources, pagination); it has not run
+  against a live cluster yet.
+- **Code scanning** is pattern-based on each language's standard crypto APIs. The sample repository it is
+  tested on compiles with javac, go, node, gcc and python. It does not follow variables or wrapper libraries
+  (`Cipher.getInstance(name)` with `name` from config is not seen), and reads the working tree, not history.
 - **Cloud auto-discovery is mock-tested.** AWS Organizations runs against moto's Organizations, STS and KMS;
   Azure subscription and GCP project discovery against recorded API responses. None has run against a real
   organization yet.
@@ -426,10 +457,10 @@ Next, in order. The first three are the next three releases.
 
 ### 3. Discovery: find what nobody listed
 
-- [ ] LDAP with StartTLS (port 389) in network discovery
-- [ ] Certificate Transparency logs: every public certificate issued for your domains
-- [ ] Kubernetes secrets and cert-manager, JKS and PKCS#12 keystores, SSH host and user keys
-- [ ] Code scanning for hard-coded keys and cryptographic API use
+- [x] LDAP with StartTLS (port 389) in network discovery *(0.11.0)*
+- [x] Certificate Transparency logs: every public certificate issued for your domains *(0.11.0)*
+- [x] Kubernetes secrets and cert-manager, JKS and PKCS#12 keystores, SSH host and user keys *(0.11.0; Kubernetes mock-verified)*
+- [x] Code scanning for hard-coded keys and cryptographic API use *(0.11.0)*
 
 ### 4. Teams and scale
 

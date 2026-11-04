@@ -36,7 +36,7 @@ keycensus changes --kinds        # the whole vocabulary and its default urgency
 
 | Kind | Why it is worth waking someone |
 |---|---|
-| `asset-removed` | A key that was **active** in the last scan is gone. Either it was deleted or the source stopped reporting it — both matter in minutes. (A key that was already `destroyed` disappearing is `asset-retired`, a digest.) |
+| `asset-removed` | A key that was **active** in the last scan is gone. Either it was deleted or the source stopped reporting it — both matter in minutes. (A key that was already `destroyed` disappearing is `asset-retired`, a digest, and so is a certificate that disappears after its expiry date, or a code call site that is gone because the code changed.) |
 | `key-became-exportable` | Private material that could not leave the module now can. This is the attribute an attacker flips before exfiltrating a key, and it is rarely changed on purpose. |
 | `hardware-backing-lost` | A key that lived in an HSM is now software-held. Your compliance scope changed with it. |
 | `fips-validation-lost` | No longer in a FIPS-validated module — an audit finding as well as a security one. |

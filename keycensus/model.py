@@ -19,6 +19,7 @@ from typing import Any
 KIND_KEY = "key"
 KIND_CERTIFICATE = "certificate"
 KIND_PROTOCOL = "protocol"
+KIND_ALGORITHM = "algorithm"  # an algorithm the code calls (code collector), with its call sites
 
 # Canonical algorithm names. Collectors map vendor spellings onto these.
 ALG_RSA = "RSA"
@@ -34,6 +35,8 @@ ALG_DES = "DES"
 ALG_RC4 = "RC4"
 ALG_CHACHA20 = "ChaCha20"
 ALG_HMAC = "HMAC"
+ALG_MD5 = "MD5"
+ALG_SHA1 = "SHA-1"
 ALG_ML_KEM = "ML-KEM"
 ALG_ML_DSA = "ML-DSA"
 ALG_SLH_DSA = "SLH-DSA"

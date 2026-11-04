@@ -1,0 +1,38 @@
+{{- if .Values.rbac.kubernetesSource }}
+# Read access for a `type: kubernetes` source scanning this cluster. get/list on secrets returns their
+# values; see deploy/kubernetes/keycensus-reader.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "keycensus.fullname" . }}-reader
+  labels:
+    {{- include "keycensus.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["list"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "issuers", "clusterissuers"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "keycensus.fullname" . }}-reader
+  labels:
+    {{- include "keycensus.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "keycensus.fullname" . }}-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "keycensus.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

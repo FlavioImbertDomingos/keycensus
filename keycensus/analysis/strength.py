@@ -21,6 +21,7 @@ Two questions every inventory has to answer per asset:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from ..model import (
@@ -48,6 +49,11 @@ QUANTUM_REDUCED = "quantum-reduced"  # Grover halves the strength; may still be 
 QUANTUM_SAFE = "quantum-safe"  # PQC algorithm or symmetric ≥ 256-bit
 QUANTUM_HYBRID = "hybrid"  # classical + post-quantum key exchange: allowed by NIST IR 8547, but temporary
 QUANTUM_UNKNOWN = "unknown"
+
+LEGACY_CIPHERS = {"Blowfish", "RC2", "IDEA", "CAST5"}
+BROKEN_HASHES = {"MD2", "MD4", "MD5", "SHA-1"}
+HASHES = BROKEN_HASHES | {"SHA-224", "SHA-256", "SHA-384", "SHA-512", "SHA3-224", "SHA3-256", "SHA3-384", "SHA3-512"}
+_HASH = re.compile(r"(SHA|SHA3)-(\d{3}(?:/\d{3})?)")
 
 PUBLIC_KEY_CLASSICAL = {ALG_RSA, ALG_EC, ALG_DSA, ALG_DH, ALG_ED25519, ALG_ED448, ALG_X25519}
 PQC = {ALG_ML_KEM, ALG_ML_DSA, ALG_SLH_DSA}
@@ -197,6 +203,18 @@ def assess(asset: CryptoAsset) -> Strength:
             0,
             f"{alg} is broken classically; retire immediately.",
         )
+    if alg in LEGACY_CIPHERS:
+        return Strength(None, QUANTUM_VULNERABLE, 0,
+                        f"{alg} has a 64-bit block (SWEET32) or known weaknesses; replace with AES-GCM.")  # fmt: skip
+    if alg in BROKEN_HASHES:
+        return Strength(0, QUANTUM_UNKNOWN, None,
+                        f"{alg} collisions are practical; never use it for signatures, certificates "
+                        "or integrity.")  # fmt: skip
+    m = _HASH.fullmatch(alg)
+    if m:
+        bits = int(m.group(2).split("/")[-1])
+        level = {224: 1, 256: 2, 384: 4, 512: 5}.get(bits)
+        return Strength(bits // 2, QUANTUM_SAFE, level, f"{alg}: NIST does not plan to move off SHA-2 or SHA-3.")
     return Strength(None, QUANTUM_UNKNOWN, None, "Algorithm not recognised.")
 
 
@@ -236,4 +254,8 @@ def primitive_for(asset: CryptoAsset) -> str:
         return "key-agree"
     if alg == ALG_ML_KEM:
         return "kem"
+    if alg in BROKEN_HASHES or _HASH.fullmatch(alg or ""):
+        return "hash"
+    if alg in LEGACY_CIPHERS or alg in ("Camellia", "SEED", "SM4"):
+        return "block-cipher"
     return "unknown"

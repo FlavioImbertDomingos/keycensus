@@ -31,8 +31,8 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 
 | Rule id | Triggers when | Default | Controls |
 |---|---|---|---|
-| `weak-algorithm` | algorithm ∈ {DES, 3DES, RC4} | high | 3.5.1, 3.7.5, SP 800-131A |
-| `weak-key-size` | RSA/DSA/DH < 2048, ECC < 224, AES/HMAC < 128 | high | 3.7.1, 3.5.1 |
+| `weak-algorithm` | algorithm ∈ {DES, 3DES, RC4, RC2, Blowfish, IDEA, CAST5} (keys, certificates, code) | high | 3.5.1, 3.7.5, SP 800-131A |
+| `weak-key-size` | RSA/DSA/DH < 2048, ECC < 224, AES/HMAC < 128 (keys, certificates, key generation in code) | high | 3.7.1, 3.5.1 |
 | `deprecated-signature-hash` | certificate signed with MD5/SHA-1 | high | 4.2.1, 3.7.5, SP 800-131A, IR 8547 |
 | `rotation-overdue` | active key older than its cryptoperiod | medium | 3.7.4, SP 800-57 |
 | `rotation-disabled` | source supports auto-rotation and it's off | low | 3.7.4 |
@@ -56,6 +56,13 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 | `ssh-weak-algorithm` | SSH server offers SHA-1 kex or `ssh-rsa`, DSA, CBC/RC4/3DES, MD5 or truncated SHA-1 MACs | high | SP 800-131A, 12.3.3 |
 | `unknown-algorithm` | collector could not identify the algorithm | info | 12.3.3 |
 | `adcs-template-weak-key-size` | an AD CS CA publishes a template whose minimum key size is weak by the `weak-key-size` test | medium | 3.7.1, SP 800-131A |
+| `hardcoded-private-key` | `code` collector: a private key or keystore in the source tree (keys under test paths are flagged in the detail). For these keys `key-exportable`, `key-software-backed` and `no-creation-date` are not raised: this finding covers them | critical | 3.6.1, 3.7.3 |
+| `weak-hash` | `code` collector: MD5 or SHA-1 calls | medium | SP 800-131A, 3.5.1, 12.3.3 |
+| `weak-cipher-mode` | `code` collector: ECB mode, including Java's `Cipher.getInstance("AES")` | high | 3.5.1, SP 800-131A |
+| `keystore-weak-protection` | JKS or JCEKS; PKCS#12 with RC2, RC4, DES or 3DES, a SHA-1/MD5 MAC or under 1000 MAC iterations; or a keystore that opens with no password or a well-known one | medium | 3.6.1, 3.7.3 |
+| `ct-unexpected-issuer` | `ct` collector: a public certificate from a CA not in `expected_issuers` | high | 4.2.1 |
+| `ldap-cleartext` | `network` collector: an LDAP server on 389 that refuses StartTLS | medium | 4.2.1, 12.3.3 |
+| `key-reuse-on-renewal` | `kubernetes` collector: a cert-manager Certificate with `privateKey.rotationPolicy: Never` | low | 3.7.4, SP 800-57 |
 
 (`3.x` / `4.x` / `12.x` = PCI DSS v4.0.1 requirements.)
 

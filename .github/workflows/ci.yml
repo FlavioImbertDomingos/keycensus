@@ -24,8 +24,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - name: System deps (SoftHSM for the PKCS#11 tests)
-        run: sudo apt-get update -q && sudo apt-get install -y -q softhsm2
+      - name: System deps (SoftHSM for the PKCS#11 tests, slapd for LDAP StartTLS)
+        run: |
+          sudo apt-get update -q
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q softhsm2 slapd
       - name: Install
         run: |
           pip install ruff
@@ -49,6 +51,7 @@ jobs:
       - run: helm lint helm/keycensus -f helm/keycensus/ci/scan-values.yaml
       - run: helm template t helm/keycensus --kube-version 1.29.0 > /dev/null
       - run: helm template t helm/keycensus --kube-version 1.29.0 -f helm/keycensus/ci/scan-values.yaml > /dev/null
+      - run: helm template t helm/keycensus --kube-version 1.29.0 --set rbac.kubernetesSource=true > /dev/null
 
   prometheus-rules:
     runs-on: ubuntu-latest

@@ -1,0 +1,50 @@
+# Read-only access for the `kubernetes` source.
+#
+#   kubectl apply -f keycensus-reader.yaml
+#
+# Kubernetes RBAC cannot grant "TLS secrets only": get/list on secrets returns every secret's value.
+# keycensus decodes values in memory and keeps only descriptions (algorithm, size, fingerprints,
+# dates), but whoever holds this service account's token can read every secret in scope. To narrow
+# it, replace the ClusterRoleBinding with a RoleBinding per namespace and set `namespaces:` in the
+# source to the same list.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycensus
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keycensus
+  namespace: keycensus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: keycensus-reader
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]                 # find_consumers: which workloads mount each secret
+    verbs: ["list"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]            # find_consumers: which ingresses terminate TLS with it
+    verbs: ["list"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "issuers", "clusterissuers"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keycensus-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keycensus-reader
+subjects:
+  - kind: ServiceAccount
+    name: keycensus
+    namespace: keycensus

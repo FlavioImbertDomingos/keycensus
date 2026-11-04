@@ -10,7 +10,7 @@ from .. import __version__
 from ..analysis import strength
 from ..analysis.controls import describe
 from ..linking import impact
-from ..model import KIND_PROTOCOL, Inventory, iso
+from ..model import KIND_ALGORITHM, KIND_PROTOCOL, Inventory, iso
 
 _Q_CSS = {
     strength.QUANTUM_VULNERABLE: "vuln",
@@ -47,7 +47,7 @@ def render(inv: Inventory) -> str:
         d["expires"] = (iso(a.expires) or "")[:10] or None
         d["used_by_ids"] = [u.get("id", "") for u in a.used_by]
         assets.append(d)
-        if a.kind != KIND_PROTOCOL:
+        if a.kind not in (KIND_PROTOCOL, KIND_ALGORITHM):
             pqc["total"] += 1
             key = {
                 strength.QUANTUM_VULNERABLE: "vulnerable",

@@ -14,6 +14,8 @@ from keycensus.model import KIND_CERTIFICATE, KIND_KEY, CryptoAsset, Inventory, 
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
+from .keymaterial import keymaterial  # noqa: E402, F401  (session fixture: real keystores and SSH keys)
+
 
 def make_asset(**kw) -> CryptoAsset:
     base = dict(source="t", source_type="test", kind=KIND_KEY, name="k", native_id="k1")

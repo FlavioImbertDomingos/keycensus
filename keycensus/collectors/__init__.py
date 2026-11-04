@@ -8,10 +8,13 @@ from .aws_kms import AwsKmsCollector
 from .azure_keyvault import AzureKeyVaultCollector
 from .base import Collector, CollectorError
 from .ciphertrust import CipherTrustCollector
+from .code import CodeCollector
+from .ct import CtCollector
 from .gcp_kms import GcpKmsCollector
 from .keysafe5 import KeySafe5Collector
+from .kubernetes import KubernetesCollector
 from .network import NetworkCollector
-from .pem_files import PemCollector
+from .pem_files import FilesCollector, PemCollector
 from .pkcs11 import Pkcs11Collector
 from .ssh_endpoint import SshCollector
 from .tls_endpoint import TlsCollector
@@ -30,10 +33,14 @@ REGISTRY: dict[str, type[Collector]] = {
         KeySafe5Collector,
         VoltageCollector,
         PemCollector,
+        FilesCollector,
         TlsCollector,
         AdcsCollector,
         SshCollector,
         NetworkCollector,
+        CtCollector,
+        KubernetesCollector,
+        CodeCollector,
     )
 }
 
@@ -46,10 +53,14 @@ DESCRIPTIONS = {
     "ciphertrust": "Thales CipherTrust Manager key vault (REST, beyond PKCS#11)",
     "keysafe5": "Entrust KeySafe 5 / nShield Security World keys (REST, beyond PKCS#11)",
     "voltage": "OpenText Voltage SecureData key inventory export (JSON/CSV, file or URL)",
-    "pem": "Certificates and keys in PEM/DER files on disk",
+    "pem": "Files on disk: PEM/DER certificates and keys, PKCS#12 and Java keystores, SSH keys and certificates",
+    "files": "Same as pem",
+    "kubernetes": "Kubernetes TLS and Opaque secrets (certificates, keys, keystores) and cert-manager Certificates",
+    "code": "Source code: hard-coded private keys and keystores, crypto API calls in Python, Java, Go, JS/TS, C#, C",
     "tls": "Live TLS endpoints: protocol, cipher suite, key exchange (classical / hybrid / ML-KEM), leaf certificate",
     "ssh": "SSH servers: offered key exchange (incl. post-quantum hybrids), host key, cipher and MAC algorithms",
-    "network": "Discovery: scan CIDR ranges for TLS, LDAPS and SSH endpoints, then probe each one",
+    "network": "Discovery: scan CIDR ranges for TLS, LDAP (StartTLS and LDAPS) and SSH endpoints, then probe each one",
+    "ct": "Certificate Transparency logs: every public certificate issued for your domains (Cert Spotter or crt.sh)",
     "adcs": "Microsoft AD CS: CA certificates and templates from AD (LDAP), issued certificates from certutil",
 }
 

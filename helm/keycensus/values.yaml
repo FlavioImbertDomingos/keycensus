@@ -106,6 +106,12 @@ ingress:
       paths: [{ path: /, pathType: Prefix }]
   tls: []
 
+# true: a ClusterRole to read secrets, pods, ingresses and cert-manager resources, bound to the service
+# account below, and its token mounted, for a `type: kubernetes` source that scans this cluster.
+# get/list on secrets returns their values; leave false unless you use that source.
+rbac:
+  kubernetesSource: false
+
 serviceAccount:
   create: true
   annotations: {}               # e.g. eks.amazonaws.com/role-arn, iam.gke.io/gcp-service-account, azure.workload.identity/client-id

@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.11.0 — 2026-11-04
+
+**Discovery: what nobody listed.**
+
+**LDAP StartTLS** (`network`, `tls`)
+
+- Port 389 is now in network discovery's default ports as `ldap-starttls`: keycensus sends the LDAP StartTLS
+  extended request (no bind, no credentials) and runs the TLS, legacy-version and key exchange probes over
+  the upgraded connection. The `tls` collector takes `ldap://host[:port]` and `ldaps://host[:port]` endpoints.
+- An LDAP server that refuses StartTLS is reported as `protocol: LDAP` with an `ldap-cleartext` finding
+  (medium). Tested against OpenLDAP slapd.
+
+**Certificate Transparency** (`ct`, new)
+
+- Every public certificate issued for your domains and subdomains, from Cert Spotter (default, returns the
+  certificates) or crt.sh, as `certificate` assets with key algorithm, issuer, SANs and expiry.
+- `expected_issuers`: a certificate from any other CA gets `ct-unexpected-issuer` (high).
+- Pagination, `Retry-After` on 429, retries on 5xx, API key through any secret reference.
+
+**Keystores and SSH keys** (`files`, the `pem` collector under a clearer name)
+
+- New shared parser (`keycensus/collectors/keyfiles.py`) for PEM, DER, PKCS#12, JKS, JCEKS and OpenSSH.
+- PKCS#12: protection read without a password; contents with `keystore_passwords` or a well-known password.
+  JKS/JCEKS: every entry and certificate chain without a password, JCEKS secret keys included; the
+  password only checks the integrity digest.
+- SSH: private keys (algorithm, cipher, passphrase or not), `*.pub`, `authorized_keys` (with options),
+  `known_hosts` (hashed hosts, `@cert-authority`), host keys and OpenSSH certificates, each with its role and
+  an `ssh-keygen -l` fingerprint.
+- `keystore-weak-protection` (medium): JKS/JCEKS, legacy PKCS#12 (RC2, 3DES, SHA-1 MAC), no password or
+  `changeit` and friends. A PKCS#12 with an unknown password is reported as locked.
+- Plain PEM keys keep their asset ids, so diffs against older scans do not churn.
+
+**Kubernetes** (`kubernetes`, new, `pip install "keycensus[kubernetes]"`)
+
+- TLS secrets (leaf certificate, whether `tls.key` matches `tls.crt`), Opaque secrets (any key, certificate
+  or keystore in a value), cert-manager Certificates matched to their secret (issuer type, key algorithm,
+  rotationPolicy, Ready), and `used_by` from the pods and ingresses that use each secret.
+- `key-reuse-on-renewal` (low) for `rotationPolicy: Never`.
+- RBAC kit in `deploy/kubernetes/`; Helm chart 0.5.0 adds `rbac.kubernetesSource` (off by default, and the
+  service account token stays unmounted unless it is on). Mock-verified with the official client.
+
+**Code scanning** (`code`, new)
+
+- Hard-coded private keys in any file, including ones pasted into string literals with escaped newlines,
+  concatenation or YAML blocks, OpenSSH keys and committed keystores: `hardcoded-private-key` (critical).
+  Placeholders are ignored, test paths are flagged, and the key itself is never stored.
+- Crypto API calls in Python, Java/Kotlin/Scala/Groovy, Go, JavaScript/TypeScript, C# and C/C++ (OpenSSL),
+  grouped per algorithm, size, curve and mode, with every call site. New `algorithm` asset kind; in the CBOM
+  these are algorithm components with CycloneDX `evidence.occurrences`.
+- `weak-hash` (MD5, SHA-1), `weak-cipher-mode` (ECB, including Java's bare `Cipher.getInstance("AES")`),
+  plus `weak-algorithm`, `weak-key-size` and the quantum rules on code. `keycensus:ignore` skips a line.
+
+**Also**
+
+- `weak-algorithm` covers RC2, Blowfish, IDEA and CAST5. SHA-2 and SHA-3 are classified as quantum-safe,
+  MD5 and SHA-1 as broken.
+- For hard-coded keys, `key-exportable`, `key-software-backed` and `no-creation-date` are not raised.
+- The executive summary and the report's PQC bar count keys and certificates only, not code call sites.
+- Change alerts: a certificate that disappears after its expiry date, and a code call site that disappears,
+  are `asset-retired` (digest), not `asset-removed` (page). An SSH `.pub` file next to its private key is
+  folded into it, like other key pairs.
+- CI installs slapd for the StartTLS tests and renders the chart with `rbac.kubernetesSource=true`.
+
 ## 0.10.0 — 2026-11-04
 
 **An executive summary at the top of the report.**

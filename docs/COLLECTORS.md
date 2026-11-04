@@ -435,28 +435,51 @@ way to widen the defaults.
 
 Requires `pip install "keycensus[adcs]"` (ldap3) for the LDAP side. Exports need no extra.
 
-## `pem` — files on disk
+## `files` (or `pem`) — certificates, keys, keystores and SSH keys on disk
 
 ```yaml
 - name: app-certs
-  type: pem
-  paths: [/etc/ssl/app, /opt/payments/keys, /etc/nginx/cert.pem]
-  patterns: ["*.pem", "*.crt", "*.cer", "*.key", "*.der", "*.pub"]   # default
+  type: files                      # `pem` is the same collector
+  paths: [/etc/ssl/app, /opt/kafka/config, /etc/ssh, /home]
   recursive: true
+  # patterns: [...]                # default: PEM/DER extensions, *.p12 *.pfx *.jks *.jceks *.keystore
+  #                                # *.truststore, id_*, *-cert.pub, authorized_keys, known_hosts, ssh_host_*_key
+  keystore_passwords:              # tried on PKCS#12, JKS/JCEKS and encrypted PEM keys, then the well-known ones
+    - password_env: KAFKA_KEYSTORE_PASSWORD
+    - password_vault: secret/data/keystores#payments
+  max_file_bytes: 10000000
 ```
 
-Parses every PEM block (bundles yield several assets) and bare DER. Certificates become
-`certificate` assets with expiry, signature hash, SANs, CA flag. Private keys become `key` assets
-marked `exportable: true`, `hardware_backed: false`, `created: null` — a private key sitting in
-a file with no register entry is precisely what an inventory should surface. Encrypted PEM keys
-are recorded as opaque private keys.
+| Format | What is read | Needs the password? |
+|---|---|---|
+| PEM, DER | Certificates (expiry, signature hash, SANs, CA flag), private keys, public keys. Encrypted PEM keys are opened with the configured passwords, else reported with the algorithm from the PEM label | Only for encrypted keys |
+| PKCS#12 (.p12, .pfx) | The protection (cipher, MAC, iterations) without a password; the key and certificates with one | For the contents |
+| JKS, JCEKS | Every entry: private keys with their certificate chains (stored unencrypted), trusted certificates, JCEKS secret keys (algorithm hidden), entry dates, key protection algorithm | No. The password is only used to check the integrity digest |
+| OpenSSH private key | Algorithm, size, cipher and bcrypt rounds, whether a passphrase protects it | No |
+| `*.pub`, `authorized_keys`, `known_hosts` | Every key, with options, host patterns (hashed ones as `(hashed)`) and `@cert-authority` markers | No |
+| OpenSSH certificates (`*-cert.pub`) | Principals, user or host, validity, the signing CA's fingerprint | No |
+
+Private keys become `key` assets marked `exportable: true`, `hardware_backed: false`, `created: null`:
+a private key in a file with no register entry is what an inventory should surface. JKS records when each
+entry was added, so those keys have a creation date. SSH keys carry `extra.ssh_role` (`host-key`,
+`user-key`, `authorized-key`, `known-host`) and `extra.ssh_fingerprint` in `ssh-keygen -l` form; FIDO keys
+(`sk-*`) are `hardware_backed: true`.
+
+`keystore-weak-protection` (medium) fires for a keystore that is JKS or JCEKS (proprietary, SHA-1 based key
+protection), legacy PKCS#12 (RC2-40, 3DES, SHA-1 MAC), opens with an empty password, or opens with a
+well-known one (`changeit`, `changeme`, `password`, `secret`, `123456`). A PKCS#12 file whose password is
+not configured is still reported, as a locked keystore, with its protection. Key material is never stored.
 
 ## `tls` — live endpoints
 
 ```yaml
 - name: edges
   type: tls
-  endpoints: ["api.example.com:443", "10.0.0.5:8443"]
+  endpoints:
+    - api.example.com:443
+    - 10.0.0.5:8443
+    - ldap://dc01.corp.example.com       # LDAP StartTLS, port 389 unless given
+    - ldaps://dc01.corp.example.com      # LDAP over TLS, port 636 unless given
   timeout: 5
   probe_legacy: true      # also attempt TLS 1.0 / 1.1 handshakes
   probe_pqc: true         # TLS 1.3 key exchange group: classical, hybrid or ML-KEM
@@ -466,6 +489,11 @@ One `protocol` asset per endpoint (negotiated version, cipher suite, legacy vers
 *also* accepts, key exchange group) plus one `certificate` asset for the leaf. Verification is disabled
 on purpose — we inventory, we don't trust. `probe_legacy` needs an OpenSSL that can still speak TLS 1.0
 (`@SECLEVEL=0`); if it can't, legacy versions are reported as not accepted.
+
+For `ldap://` endpoints every connection first sends the LDAP StartTLS extended request (RFC 4511, OID
+1.3.6.1.4.1.1466.20037), before any bind and with no credentials, then runs the same handshake, legacy and
+key exchange probes over the upgraded connection. The asset is still `protocol: TLS`, with
+`extra.starttls: ldap`. Tested against OpenLDAP `slapd`.
 
 ### Key exchange: classical, hybrid or ML-KEM
 
@@ -521,7 +549,7 @@ exchange), only the host key algorithms offered.
   type: network
   cidrs: [10.20.0.0/22, 10.20.8.15]
   exclude: [10.20.1.0/28]          # never touched, not even a TCP connect
-  ports: {443: tls, 8443: tls, 636: ldaps, 3269: ldaps, 22: ssh}   # the default
+  ports: {443: tls, 8443: tls, 389: ldap-starttls, 636: ldaps, 3269: ldaps, 22: ssh}   # the default
   connect_timeout: 1.0
   timeout: 5
   concurrency: 64
@@ -535,14 +563,130 @@ exchange), only the host key algorithms offered.
 Finds endpoints nobody listed. First a plain TCP connect to every host and port in range (no raw packets,
 no root, no SYN scan), then a probe on each open port: `tls` and `ldaps` get the `tls` collector's
 handshake and key exchange probe (a `protocol` asset and the leaf `certificate`), `ssh` gets the `ssh`
-collector's KEXINIT read. Every asset carries `extra.service` and `extra.discovered_by: network`. A port
-that is open but does not speak the expected protocol is logged and skipped. LDAP with StartTLS on 389 is
-not probed yet; LDAPS on 636 and the global catalog on 3269 are.
+collector's KEXINIT read. `ldap-starttls` (389) sends the LDAP StartTLS request first, then runs the TLS
+probes. Every asset carries `extra.service` and `extra.discovered_by: network`. A port that is open but does
+not speak the expected protocol is logged and skipped.
+
+An LDAP server that answers but refuses StartTLS (no certificate configured) is reported as a `protocol`
+asset with `protocol: LDAP` and `extra.starttls_error`, and gets an `ldap-cleartext` finding (medium): simple
+binds to it send passwords in the clear. Domain controllers answer StartTLS on 389 once they have an LDAPS
+certificate.
 
 **Only scan networks you are authorized to scan.** The defaults are deliberately small: private,
-loopback and link-local ranges only, at most 4096 addresses, five ports. Raising `max_hosts` or setting
-`allow_public` should be a written decision. A /22 with the default ports is about 5,000 connects; if every
-port is filtered (each connect waits out `connect_timeout`) that is roughly 80 seconds at the defaults.
+loopback and link-local ranges only, at most 4096 addresses, six ports. Raising `max_hosts` or setting
+`allow_public` should be a written decision. A /22 with the default ports is about 6,000 connects; if every
+port is filtered (each connect waits out `connect_timeout`) that is roughly 100 seconds at the defaults.
+
+## `kubernetes` — secrets and cert-manager
+
+```yaml
+- name: prod-cluster
+  type: kubernetes
+  # kubeconfig: ~/.kube/config     # default: the in-cluster service account, else $KUBECONFIG
+  # context: prod
+  namespaces: []                   # default: every namespace
+  tls_secrets: true                # kubernetes.io/tls: the leaf certificate in tls.crt
+  opaque_secrets: true             # Opaque: any value that is a key, certificate or keystore
+  include_chain: false             # also intermediates in tls.crt and ca.crt
+  cert_manager: true               # Certificate, Issuer, ClusterIssuer
+  find_consumers: true             # pods and ingresses that use each secret
+  keystore_passwords: [{password_env: KEYSTORE_PASSWORD}]
+```
+
+Needs `pip install "keycensus[kubernetes]"`. For each TLS secret, a `certificate` asset for the leaf with
+`extra.key_algorithm` and `extra.key_matches_certificate` (a `tls.key` that does not match `tls.crt` breaks
+the workload at its next restart). Opaque secret values go through the same reader as the `files`
+collector, so a JKS or PKCS#12 keystore a Kafka broker or Java service keeps in a secret is read entry by
+entry, with the same `keystore-weak-protection` finding. Values that are not key material are not decoded.
+
+cert-manager Certificates are matched to their secret: the asset gets `extra.cert_manager` (issuer, issuer
+type such as `acme (https://acme-v02...)`, `ca`, `vault`; private key algorithm and size; rotationPolicy;
+renewBefore; Ready) and `rotation_enabled: true`. A Certificate whose secret is not readable or not issued
+yet is reported from its spec. `rotationPolicy: Never`, the default before cert-manager 1.18, reuses the
+private key at every renewal and gets `key-reuse-on-renewal` (low).
+
+`used_by` lists the pods (by owner, such as `payments/ReplicaSet/api-7d9f`) that mount the secret as a
+volume or read it into env vars, and the ingresses that terminate TLS with it.
+
+Kubernetes RBAC cannot grant read access to TLS secrets only: `get`/`list` on secrets returns every value.
+keycensus keeps only descriptions, but scope the grant with namespaced RoleBindings if that matters to you.
+[`deploy/kubernetes/keycensus-reader.yaml`](../deploy/kubernetes/keycensus-reader.yaml) has the ClusterRole;
+the Helm chart creates the same with `rbac.kubernetesSource: true`. Tested with the official client against
+a local server that answers in the API's shapes; not yet run against a live cluster.
+
+## `ct` — Certificate Transparency
+
+```yaml
+- name: public-certs
+  type: ct
+  domains: [example.com, example.org]
+  include_subdomains: true           # default
+  provider: certspotter              # or crtsh
+  api_key_env: CERTSPOTTER_API_KEY   # optional; raises Cert Spotter's free allowance
+  include_expired: false
+  expected_issuers: ["Let's Encrypt", "DigiCert"]
+  max_certificates: 5000
+```
+
+Publicly trusted CAs log every certificate they issue, so CT shows certificates that never made it into a
+register: a vendor-built marketing site, a forgotten test host, or a certificate someone obtained for your
+name. Each becomes a `certificate` asset with key algorithm and size, issuer, SANs and expiry, so the expiry,
+weak-key and quantum rules apply to it. `extra.precertificate` marks entries where only the precertificate
+was logged; `extra.revoked` comes from Cert Spotter.
+
+With `expected_issuers`, a certificate from any other CA gets `ct-unexpected-issuer` (high). Matching is a
+case-insensitive substring of the issuer DN or Cert Spotter's friendly name. CAA records are the matching
+control on the CA side.
+
+Cert Spotter (SSLMate) returns the certificates themselves, one entry per issuance. Without an API key its
+free allowance is a few queries an hour; with one it covers large estates. crt.sh needs no key, lists
+entries and is then asked for each certificate (`max_certificates` caps that); it is often slow or
+returning errors, which keycensus retries. Both honour `Retry-After` on HTTP 429.
+
+## `code` — source code
+
+```yaml
+- name: payments-repo
+  type: code
+  paths: [/src/payments-api, /src/batch-jobs]
+  exclude: ["docs/**"]               # added to .git, node_modules, vendor, build, target, venv ...
+  hardcoded_keys: true
+  api_usage: true
+  skip_tests: false
+  max_file_bytes: 1000000
+```
+
+**Hard-coded keys.** Every file is checked for private keys: PEM blocks, including ones pasted into string
+literals with escaped newlines, Java or JavaScript string concatenation, Python implicit concatenation and
+YAML block scalars; OpenSSH private keys; committed keystores (.p12, .pfx, .jks ...). Each key becomes a `key`
+asset with `extra.hardcoded`, the file and the line, and gets `hardcoded-private-key` (critical). Text that
+looks like a key but does not parse (`REPLACE_ME` placeholders) is ignored, and so are certificates and
+public keys. Keys under a test path (`tests/`, `fixtures/`, `testdata/`, `*_test.go` ...) are reported
+with `extra.test_path` and the finding says so, because test keys sometimes are production keys. The
+inventory holds the algorithm, size and fingerprint, never the key.
+
+**API usage.** One `algorithm` asset per algorithm, size, curve and mode per repository, with every call
+site in `extra.occurrences` (file, line, API, language) and in the CBOM as CycloneDX `evidence.occurrences`.
+
+| Language | Recognised |
+|---|---|
+| Python | `hashlib`, `cryptography` (hashes, ciphers and modes, RSA/EC/DSA/Ed25519/X25519 key generation), pycryptodome (`AES.new` with its mode, DES, DES3, ARC4, RSA, ECC) |
+| Java, Kotlin, Scala, Groovy | `Cipher.getInstance` (a bare `"AES"` is AES/ECB in SunJCE, and reported so), `MessageDigest`, `KeyPairGenerator` with the `initialize` size or curve, `KeyGenerator`, `Signature` (SHA1withRSA reports SHA-1 too), `KeyAgreement`, `KEM` (ML-KEM) |
+| Go | `crypto/md5`, `sha1`, `sha256`, `sha512`, `des`, `rc4`, `rsa.GenerateKey` size, `ecdsa`/`ecdh` curves, `ed25519`, `crypto/mlkem` |
+| JavaScript, TypeScript | Node `createHash`, `createCipheriv`/`createCipher` cipher strings, `generateKeyPair(Sync)` with modulus or curve; WebCrypto algorithm objects |
+| C# | `MD5`/`SHA1`/... `.Create()` and `*CryptoServiceProvider`, `DES`, `TripleDES`, `RC2`, `Aes`, `CipherMode.ECB` set on a cipher created just above, `RSA.Create(size)`, `ECDsa` curves |
+| C, C++ | OpenSSL `EVP_*` digests and ciphers (`EVP_aes_128_ecb` gives AES-128/ECB), `MD5`/`SHA1` calls, RSA key generation sizes, `NID_*` curves, `EVP_PKEY_CTX_new_from_name` |
+
+Findings: `weak-hash` (MD5, SHA-1), `weak-cipher-mode` (ECB), `weak-algorithm` (DES, 3DES, RC4, RC2,
+Blowfish), `weak-key-size`, and the quantum rules, so RSA and ECDH call sites land in the migration plan
+with their locations. ML-KEM call sites are inventoried as quantum-safe. A line with `keycensus:ignore` (or
+the line after it) is skipped; use it for the MD5 that computes a cache key.
+
+Detection reads each language's standard APIs line by line. It does not follow variables
+(`Cipher.getInstance(name)` with `name` from config is not seen), wrappers or third-party crypto libraries
+beyond those listed, and it reads the working tree, not git history: pair it with gitleaks or trufflehog for
+secrets that were committed and removed. Scanning two open-source JWT libraries (node-jsonwebtoken, jjwt)
+took 0.2 and 1.1 seconds; every key found was a test key, correctly flagged as such.
 
 ## Writing your own
 
