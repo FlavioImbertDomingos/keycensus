@@ -110,6 +110,8 @@ with a default filename. The serve loop picks up new formats automatically if yo
 | `keycensus/secrets.py` | secret references: env, file, Vault, AWS Secrets Manager, Azure Key Vault, GCP Secret Manager |
 | `keycensus/audit.py` | hash-chained JSON lines audit log and its verifier |
 | `keycensus/signing.py` | Ed25519-signed scan manifests: keygen, sign, verify |
+| `keycensus/timestamp.py` | RFC 3161 timestamp requests and verification (TSTInfo, CMS signature, TSA chain) |
+| `keycensus/oidc.py` | OpenID Connect for `serve`: discovery, JWKS, JWT checks, code + PKCE login, signed sessions |
 | `keycensus/serve.py` | long-running mode: token auth, TLS, audit, signed manifests per rescan |
 | `keycensus/cli.py` | click CLI |
 | `demo/` | seed scripts (SoftHSM, Vault, KMS), demo cert generator, container entrypoint |

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.9.0 — 2026-11-04
+
+**Sign in with your identity provider, and timestamps a third party vouches for.**
+
+**OIDC for `serve`** (`serve.auth.oidc`)
+
+- Browsers: authorization code flow with PKCE (S256), `state` bound to a short-lived signed cookie,
+  `nonce` checked in the ID token, then keycensus's own HMAC-signed session cookie (HttpOnly,
+  SameSite=Lax, Secure on https). The provider's tokens are never stored. `/login`, `/logout`, and an
+  unauthenticated browser request is redirected to sign in.
+- Machines: `Authorization: Bearer <JWT>` from the provider (client credentials, workload identity),
+  checked for issuer, audience, expiry and signature.
+- JWTs are verified against the provider's JWKS (RS/PS/ES 256-512 and EdDSA; never `none` or HMAC), with
+  a JWKS refetch when a new key id appears (key rotation). The discovery issuer must match exactly.
+- Who may in: `allowed_emails`, `allowed_domains`, `allowed_groups`, `allowed_subjects`; at least one is
+  required. Claims missing from the ID token come from userinfo, only for the same subject. Only the
+  `email` claim is used for email and domain rules, never `preferred_username`.
+- Works alongside static tokens; OIDC alone satisfies the "no unauthenticated non-loopback serve" rule.
+- Audit events: `serve.login`, `serve.login_failed`, `serve.logout`; reads are recorded as
+  `oidc:<email>` or `jwt:<subject>`.
+- Tested end to end against `oidc-provider`, a certified OpenID provider, and in CI against a scripted
+  provider.
+
+**RFC 3161 timestamps** (`signing.timestamp`)
+
+- After signing, keycensus sends the SHA-256 of the signature to a TSA (several `urls`, tried in order) and
+  stores the reply as `manifest.json.tsr`; `serve` serves `/manifest.json.tsr`.
+- Checked on arrival and by `keycensus verify`: status, message imprint, nonce, the CMS signature, the
+  timeStamping EKU, validity at the stamped time, and the chain to `ca_file` / `--tsa-ca-file`.
+  `--require-timestamp` fails a folder without a trusted timestamp. `required: true` fails a scan whose
+  timestamp could not be obtained.
+- The `.tsr` is standard: `openssl ts -verify` accepts it. Verified against FreeTSA and DigiCert.
+- New core dependency: `asn1crypto` (pure Python), for the RFC 3161 and CMS structures.
+
 ## 0.8.0 — 2026-11-04
 
 **Safe to leave running.** Stage 1 of the roadmap: the report and CBOM need a token, every scan can be

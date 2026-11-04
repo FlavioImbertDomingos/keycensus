@@ -18,6 +18,13 @@ serve:
       - {name: grafana, token_env: KC_TOKEN_GRAFANA}
       # - {name: auditor, token_vault: secret/data/keycensus#auditor_token}
     # public_paths: [/metrics, /healthz, /livez]   # the default
+    # oidc:                            # sign in through your identity provider (docs/PERMISSIONS.md)
+    #   issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+    #   client_id: <application-id>
+    #   client_secret_env: KC_OIDC_SECRET
+    #   redirect_url: https://keycensus.example.com/oauth2/callback
+    #   allowed_groups: [<group-object-id>]
+    #   session_key_env: KC_SESSION_KEY
   # tls: {cert_file: /etc/keycensus/tls.crt, key_file: /etc/keycensus/tls.key}
 
 # ---- Hash-chained audit log: scans, config changes, report reads, webhooks (SECURITY.md)
@@ -29,6 +36,10 @@ serve:
 #      (keycensus keygen --out keycensus-signing; keycensus verify out --public-key ...)
 # signing:
 #   private_key_file: /run/secrets/keycensus-signing.pem
+#   timestamp:                         # RFC 3161: a TSA vouches for when the scan was signed
+#     urls: [http://timestamp.digicert.com, https://freetsa.org/tsr]
+#     ca_file: /etc/ssl/certs/ca-certificates.crt
+#     required: false
 
 sources:
   # ---- HSMs over PKCS#11 (run keycensus where the vendor client library is installed)

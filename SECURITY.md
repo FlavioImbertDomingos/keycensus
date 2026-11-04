@@ -19,13 +19,17 @@ with names, locations and weaknesses. Treat both the config and the outputs acco
   logged; the audit log records references only.
 - **The report and CBOM need a token.** `keycensus serve` listens on 127.0.0.1 by default and refuses to
   start on any other address without a token, unless `allow_unauthenticated` says a proxy authenticates.
-  Tokens are compared as SHA-256 digests in constant time; HTTPS with `serve.tls`. Responses carry
+  Tokens are compared as SHA-256 digests in constant time; HTTPS with `serve.tls`. Or sign in with
+  your identity provider (`serve.auth.oidc`): authorization code with PKCE, `state` and `nonce` checks,
+  ID tokens and machine JWTs verified against the provider's JWKS, allow-lists required. Responses carry
   `nosniff`, `no-store`, `X-Frame-Options: DENY` and a restrictive Content-Security-Policy.
 - **Audit log.** With `audit:` set, every scan (sources and credential references), config or policy
   change, report or CBOM read (with the token's name), refused request and webhook is appended to a
   hash-chained JSON lines file, optionally HMAC-keyed. `keycensus audit verify` checks the chain.
 - **Signed scan records.** With `signing:` set, every scan writes `manifest.json` (SHA-256 of each
-  output) and an Ed25519 signature over it. `keycensus verify OUT --public-key ...` checks both.
+  output) and an Ed25519 signature over it. With `signing.timestamp`, an RFC 3161 Time Stamping
+  Authority countersigns that signature, so the signing time does not rest on the scanner's clock.
+  `keycensus verify OUT --public-key ... --tsa-ca-file ...` checks all of it.
 - **No key material in outputs.** Assets carry metadata only; certificate public keys are summarised
   (algorithm, size, fingerprint), not embedded.
 - **TLS verification on by default** for Vault, Voltage and AD CS LDAPS URLs; the `tls` collector disables

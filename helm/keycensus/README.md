@@ -64,6 +64,9 @@ serviceAccount:
   (kept across upgrades) and passes it as `$KEYCENSUS_SERVE_TOKEN`; `NOTES.txt` prints how to read it.
   Bring your own with `mode.serve.auth.existingTokenSecret`, or add named tokens under `config.serve.auth`.
   `/metrics`, `/healthz` and `/livez` stay public, so probes and the ServiceMonitor need nothing.
+* **OIDC**: set `config.serve.auth.oidc` (see `docs/PERMISSIONS.md`). `redirect_url` must be the address
+  your Ingress serves, and with more than one replica every pod needs the same `session_key` (put it in
+  `existingSecret` and reference it with `session_key_env`).
 * **Audit and signing**: set `config.audit` and `config.signing` (they pass through to the config file).
   Put the audit log on the scan PVC or ship it off the pod, and mount the signing key from a Secret
   with `extraVolumes`.
