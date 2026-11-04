@@ -3,7 +3,9 @@
 **A census of every cryptographic key, certificate and TLS endpoint you own — and what's wrong with them.**
 
 One command scans your HSMs (PKCS#11, CipherTrust Manager, KeySafe 5), Vault, AWS KMS, Azure Key Vault /
-Managed HSM, Google Cloud KMS, Voltage, Microsoft AD CS, certificate folders and TLS ports, and grades every asset against
+Managed HSM, Google Cloud KMS (one account, or every account, subscription and project in your organization),
+Voltage, Microsoft AD CS, certificate folders, TLS and SSH endpoints and whole network ranges, and grades every
+asset against
 **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the **NIST IR 8547** post-quantum timeline.
 
 It answers three questions, not one: **what do we have** — a standards-based CBOM (CycloneDX 1.6), an HTML
@@ -137,15 +139,16 @@ sources:
     type: vault
     url: https://vault.example.com:8200
     token_env: VAULT_TOKEN
-  - name: aws-prod
+  - name: aws-org                 # every account in the AWS Organization, every enabled region
     type: aws-kms
-    region: us-east-1
-  - name: kv-payments
+    organization: true
+    regions: all
+  - name: azure-all               # every Key Vault and Managed HSM in every subscription
     type: azure-keyvault
-    vault_url: https://payments-kv.vault.azure.net
-  - name: gcp-payments
+    discover: true
+  - name: gcp-all                 # every project you can see
     type: gcp-kms
-    project: acme-payments-prod
+    discover: true
   - name: ctm-prod
     type: ciphertrust
     url: https://ctm.example.com
@@ -166,6 +169,9 @@ sources:
   - name: edges
     type: tls
     endpoints: ["api.example.com:443"]
+  - name: dc-east                 # find TLS, LDAPS and SSH endpoints nobody listed
+    type: network
+    cidrs: [10.20.0.0/22]
 
 # Optional: join your SBOMs to the keys each application uses (see below).
 applications:
@@ -200,6 +206,9 @@ never reads key values, only public attributes. See [SECURITY.md](SECURITY.md).
 | Quantum-vulnerable signing key | low | NIST IR 8547; EO 14412; PCI 12.3.3 |
 | AES-128 / AES-192 (margin note; NIST keeps both) | info | none |
 | TLS < 1.2 accepted, weak cipher suite, no forward secrecy | high / high / low | PCI 4.2.1, 12.3.3 |
+| TLS 1.3 / SSH key exchange is classical (x25519, P-256, curve25519-sha256) | medium | NIST IR 8547; EO 14412; PCI 12.3.3 |
+| TLS 1.3 / SSH key exchange is hybrid (X25519MLKEM768, mlkem768x25519-sha256): allowed, but temporary | info | NIST IR 8547 |
+| SSH server offers SHA-1, DSA, CBC, RC4, 3DES or MD5 algorithms | high | NIST 800-131A; PCI 12.3.3 |
 | No creation date (cryptoperiod unknowable) | info | PCI 12.3.3, 3.6.1.1 |
 | AD CS CA publishes a template that allows weak keys | medium | PCI 3.7.1; NIST 800-131A |
 
@@ -256,9 +265,9 @@ now, what stops working?* keycensus answers it from two kinds of evidence.
 
 **Inferred**, from the key store itself: AWS KMS grants and key-policy principals, GCP IAM bindings, Azure
 role assignments and access policies, Vault ACL policies granting `transit/<op>/<key>`, CipherTrust
-application and owner, the account that enrolled for an AD CS certificate. Six of the eleven collectors can
-do this; PKCS#11, PEM, TLS, Voltage and KeySafe 5 have no notion of a consumer, so those keys are declared
-instead.
+application and owner, the account that enrolled for an AD CS certificate. Six of the thirteen collectors can
+do this; PKCS#11, PEM, TLS, SSH, network discovery, Voltage and KeySafe 5 have no notion of a consumer, so
+those keys are declared instead.
 
 **Declared**, from your SBOMs — CycloneDX or SPDX 2.2/2.3 JSON:
 
@@ -356,6 +365,11 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - **Voltage SecureData has no public inventory API.** The `voltage` collector consumes an export
   (JSON or CSV, from the Management Console or an internal adapter) with a configurable field map.
   If you run Voltage and can share a redacted export, that is the most useful issue you can open.
+- **The TLS key exchange probe** was tested against OpenSSL 3.5 (Node 22) and Go 1.24 TLS servers, and the
+  SSH probe against OpenSSH 9.6. Live internet endpoints were not part of the test run.
+- **Cloud auto-discovery is mock-tested.** AWS Organizations runs against moto's Organizations, STS and KMS;
+  Azure subscription and GCP project discovery against recorded API responses. None has run against a real
+  organization yet.
 - Control text is paraphrased. keycensus is evidence for *your* assessment, not a QSA.
 - Cryptoperiod defaults are opinions (365 d symmetric, 730 d asymmetric). Change them.
 
@@ -371,6 +385,9 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
 - [x] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking *(0.5.0)*
 - [x] Microsoft AD CS: CA certificates and templates from Active Directory, issued certificates from `certutil` exports *(0.6.0, mock-verified)*
+- [x] Hybrid and ML-KEM key exchange reported by the `tls` collector (and SSH), classified as allowed but temporary per NIST IR 8547 *(0.7.0)*
+- [x] Network discovery: TLS, LDAPS and SSH endpoints in CIDR ranges *(0.7.0)*
+- [x] Cloud auto-discovery across every AWS account and region, Azure subscription and GCP project *(0.7.0, mock-verified)*
 
 Next, in order. The first three are the next three releases.
 
@@ -392,9 +409,7 @@ Next, in order. The first three are the next three releases.
 
 ### 3. Discovery: find what nobody listed
 
-- [ ] Hybrid key exchange (e.g. X25519 + ML-KEM-768) reported by the `tls` collector and classified as allowed but temporary, per NIST IR 8547
-- [ ] Network discovery: scan a CIDR range for TLS, SSH and LDAPS endpoints
-- [ ] Cloud auto-discovery across every AWS account, Azure subscription and GCP project in an organization
+- [ ] LDAP with StartTLS (port 389) in network discovery
 - [ ] Certificate Transparency logs: every public certificate issued for your domains
 - [ ] Kubernetes secrets and cert-manager, JKS and PKCS#12 keystores, SSH host and user keys
 - [ ] Code scanning for hard-coded keys and cryptographic API use

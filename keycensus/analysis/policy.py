@@ -298,8 +298,50 @@ def rule_adcs_template_weak_key_size(p: Policy, a: CryptoAsset):
                      ["PCI-DSS-4.0:3.7.1", "NIST-SP-800-131A"])  # fmt: skip
 
 
+def rule_key_exchange(p: Policy, a: CryptoAsset):
+    """TLS 1.3 groups and SSH kex: classical (harvest-now-decrypt-later) or hybrid (allowed, temporary)."""
+    if a.kind != KIND_PROTOCOL or not a.key_exchange:
+        return
+    q, note = strength.key_exchange_class(a.key_exchange)
+    info = (a.extra or {}).get("key_exchange") or {}
+    pq = [g for g in info.get("pq_supported") or [] if g != a.key_exchange]
+    proto = a.protocol or "the endpoint"
+    if q == strength.QUANTUM_VULNERABLE:
+        if pq:
+            fix = (f"The server already accepts {', '.join(pq)} but prefers {a.key_exchange}: put the hybrid first "
+                   "in its group / kex preference order.")  # fmt: skip
+        elif proto == "SSH":
+            fix = "Enable mlkem768x25519-sha256 (OpenSSH 9.9+) and list it first in KexAlgorithms."
+        else:
+            fix = ("Enable X25519MLKEM768 (OpenSSL 3.5+, BoringSSL, Go 1.24+, current load balancers and CDNs) and "
+                   "prefer it.")  # fmt: skip
+        yield _f(p, "quantum-vulnerable-key-exchange", a,
+                 f"{proto} key exchange {a.key_exchange} is quantum-vulnerable",
+                 f"{a.name}: {note}", fix,
+                 ["NIST-IR-8547", "US-EO-14412", "PCI-DSS-4.0:12.3.3"])  # fmt: skip
+    elif q == strength.QUANTUM_HYBRID:
+        yield _f(p, "hybrid-key-exchange", a,
+                 f"{proto} key exchange {a.key_exchange} is hybrid: allowed, but temporary",
+                 f"{a.name}: {note}",
+                 "Nothing to fix today. Track it: plan the second move to ML-KEM only when your clients support it.",
+                 ["NIST-IR-8547"], default_sev="info")  # fmt: skip
+
+
+def rule_ssh(p: Policy, a: CryptoAsset):
+    if a.kind != KIND_PROTOCOL or a.protocol != "SSH":
+        return
+    weak = (a.extra or {}).get("weak_algorithms") or []
+    if weak:
+        yield _f(p, "ssh-weak-algorithm", a,
+                 f"SSH server offers {', '.join(weak)}",
+                 f"{a.name} offers algorithms with known weaknesses (SHA-1, small DH groups, CBC, RC4, 3DES, MD5, "
+                 "DSA). A client that prefers them, or an attacker in the middle, can push the session down to them.",
+                 "Remove them from KexAlgorithms / HostKeyAlgorithms / Ciphers / MACs in sshd_config.",
+                 ["NIST-SP-800-131A", "PCI-DSS-4.0:12.3.3"], default_sev="high")  # fmt: skip
+
+
 def rule_tls(p: Policy, a: CryptoAsset):
-    if a.kind != KIND_PROTOCOL:
+    if a.kind != KIND_PROTOCOL or (a.protocol or "TLS") != "TLS":
         return
     weak_versions = set(a.weak_versions_accepted) | (
         {a.protocol_version} if a.protocol_version in WEAK_TLS_VERSIONS else set()
@@ -341,6 +383,8 @@ RULES: dict[str, Rule] = {
     "quantum": rule_quantum,  # emits quantum-vulnerable(-encryption) / quantum-reduced
     "unknown-algorithm": rule_unknown_algorithm,
     "tls": rule_tls,  # emits tls-*
+    "key-exchange": rule_key_exchange,
+    "ssh": rule_ssh,  # emits ssh-weak-algorithm  # emits quantum-vulnerable-key-exchange / hybrid-key-exchange
     "adcs-template-weak-key-size": rule_adcs_template_weak_key_size,
 }
 

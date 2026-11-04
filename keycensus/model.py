@@ -94,6 +94,9 @@ class CryptoAsset:
     protocol_version: str | None = None  # TLSv1.2
     cipher_suites: list[str] = field(default_factory=list)
     weak_versions_accepted: list[str] = field(default_factory=list)
+    # key exchange the endpoint uses: TLS 1.3 group (x25519, X25519MLKEM768 ...) or SSH kex algorithm.
+    # Classified by analysis.strength.key_exchange_class; details in extra["key_exchange"].
+    key_exchange: str | None = None
     tags: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
     # who uses it -- inferred by the collector (IAM principals, grants, Vault policies, NTLS clients,

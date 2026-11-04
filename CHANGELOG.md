@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.7.0 — 2026-11-03
+
+**Hybrid key exchange, network discovery and cloud-wide discovery.** Three roadmap items.
+
+**Key exchange: classical, hybrid or ML-KEM**
+
+- The `tls` collector now reports the TLS 1.3 key exchange group each endpoint negotiates
+  (`key_exchange` on the asset, `probe_pqc: true` by default). keycensus writes its own ClientHello,
+  offering X25519MLKEM768 the way browsers do, and reads the group from the server's first reply, which
+  TLS 1.3 sends unencrypted. A second probe offers only post-quantum groups and lists every one the server
+  accepts, so "supports the hybrid but prefers X25519" is visible. The handshake is never finished and no
+  OpenSSL 3.5 is needed. Tested against OpenSSL 3.5 and Go 1.24 servers.
+- New quantum class `hybrid`. X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
+  mlkem768x25519-sha256 and sntrup761x25519-sha512 are hybrid; MLKEM512/768/1024 are quantum-safe; x25519,
+  the NIST curves and finite-field DH are quantum-vulnerable. The pre-FIPS 203 X25519Kyber768Draft00 and
+  NTRU Prime hybrids are noted as not NIST algorithms.
+- New rules: `quantum-vulnerable-key-exchange` (medium; NIST IR 8547, EO 14412, PCI 12.3.3), whose
+  remediation says when the server already accepts a hybrid and only its preference order is wrong, and
+  `hybrid-key-exchange` (info): allowed by NIST IR 8547 but temporary.
+- New change kind `pq-key-exchange-lost` (pages by default; also in the `KeycensusCryptoWeakened` alert)
+  for an endpoint that falls back from hybrid or ML-KEM to classical; `pq-key-exchange-gained` is ignored.
+- `key_exchange` is in the CBOM (`keycensus:keyExchange`, `keycensus:pqKeyExchangeSupported`), the CSV,
+  diff mode and the HTML report, which counts endpoints by key exchange class.
+
+**SSH**
+
+- New `ssh` collector. Reads the banner and the server's KEXINIT, which SSH sends before any login, and
+  records the offered key exchange, host key, cipher and MAC algorithms. `key_exchange` is what a current
+  OpenSSH client would negotiate. Tested against OpenSSH 9.6.
+- New rule `ssh-weak-algorithm` (high): SHA-1 key exchange or `ssh-rsa`, DSA, CBC/RC4/3DES/Blowfish, MD5
+  or truncated SHA-1 MACs. The `tls-*` rules no longer run on non-TLS endpoints.
+
+**Network discovery**
+
+- New `network` collector: TCP connect to every host and port in CIDR ranges (default ports 443, 8443,
+  636, 3269 and 22), then the TLS, LDAPS or SSH probe on each open port. Refuses public ranges and ranges
+  over 4096 addresses unless told otherwise; `exclude` ranges are never touched.
+
+**Cloud auto-discovery**
+
+- `aws-kms`: `organization: true` scans every ACTIVE account in the AWS Organization by assuming
+  `member_role` in each; `regions: all` scans every enabled region. Assets carry `account_id` and `region`.
+- `azure-keyvault`: `discover: true` scans every Key Vault and Managed HSM in every enabled subscription
+  (or the listed `subscriptions`). Assets carry `subscription_id`, `resource_group` and `vault`.
+- `gcp-kms`: `discover: true` scans every ACTIVE project from Cloud Resource Manager (narrowed by
+  `project_query`, or an explicit `projects` list). Projects without the Cloud KMS API are skipped quietly.
+- In all three, one account, subscription, vault, project or region that fails is logged and skipped; the
+  source fails only when every target fails. Mock-tested (moto, recorded responses), not yet run against a
+  real organization.
+
+Docs: COLLECTORS (key exchange, `ssh`, `network`, discovery sections), POLICY, CBOM, ALERTING,
+COMPLIANCE, PQC-TIMELINE, ARCHITECTURE, FAQ, SECURITY, README and the example config.
+
 ## 0.6.1 — 2026-11-03
 
 **NIST IR 8547 is final.** NIST published the final *Transition to Post-Quantum Cryptography

@@ -7,7 +7,7 @@
         ┌── collectors/ ───────────────────────────────────────────┐
         │ pkcs11  vault  aws_kms  azure_keyvault  gcp_kms          │   each returns list[CryptoAsset]
         │ ciphertrust  keysafe5  voltage  adcs                     │
-        │ pem_files  tls_endpoint                                  │
+        │ pem_files  tls_endpoint  ssh_endpoint  network           │
         └──────────────────────────────────────────────────────────┘
                   │
                   ▼
@@ -101,7 +101,7 @@ with a default filename. The serve loop picks up new formats automatically if yo
 |---|---|
 | `keycensus/model.py` | CryptoAsset, Finding, SourceResult, Inventory |
 | `keycensus/config.py` | YAML loading, secret resolution (`*_env`, `*_file`) |
-| `keycensus/collectors/` | one module per source type + `x509util.py` shared cert parsing |
+| `keycensus/collectors/` | one module per source type + `x509util.py` shared cert parsing, `tls_groups.py` (TLS 1.3 key exchange probe: hand-built ClientHello, ServerHello parsing) and `ssh_probe.py` (SSH banner and KEXINIT) |
 | `keycensus/analysis/strength.py` | security strength & quantum classification tables |
 | `keycensus/analysis/policy.py` | rules engine + policy loading/merging |
 | `keycensus/analysis/controls.py` | control catalogue (PCI, NIST) |

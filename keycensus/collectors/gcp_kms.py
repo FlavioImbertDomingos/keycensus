@@ -10,6 +10,14 @@
       include_iam: true        # who uses the key: IAM bindings on the CryptoKey -> used_by
       endpoint: https://cloudkms.googleapis.com      # override for tests / emulators
 
+    # Auto-discovery: every ACTIVE project the identity can see (instead of `project`)
+    - name: gcp-all
+      type: gcp-kms
+      discover: true
+      project_query: "parent:folders/123456789"     # optional Cloud Resource Manager search filter
+      projects: [acme-payments-prod, acme-core]     # optional: an explicit list instead of searching
+      exclude_projects: [acme-sandbox]
+
 Uses the REST API with `requests`; `pip install 'keycensus[gcp]'` adds `google-auth` for
 `auth: default` (workload identity, service-account JSON via GOOGLE_APPLICATION_CREDENTIALS,
 `gcloud auth application-default login`). Needs `roles/cloudkms.viewer` on the project (it includes
@@ -19,6 +27,12 @@ One asset per **CryptoKey**, described by its primary version (or the newest one
 is no primary): algorithm from the version, `protectionLevel` (SOFTWARE / HSM / EXTERNAL /
 EXTERNAL_VPC) -> `hardware_backed` + `fips_validated`, `rotationPeriod` -> `rotation_enabled`,
 `primary.createTime` -> `last_rotated`. Version counts and states go to `extra`.
+
+Discovery calls Cloud Resource Manager `projects:search` (state ACTIVE), which needs
+`resourcemanager.projects.get` on the projects -- `roles/browser` at the organization or folder
+grants it -- plus `roles/cloudkms.viewer` on each project to read keys. Projects where the Cloud
+KMS API was never enabled hold no keys and are skipped quietly; any other failure is logged and
+skipped, and the source fails only if every project fails.
 """
 
 from __future__ import annotations
@@ -29,6 +43,7 @@ from datetime import UTC, datetime
 
 import requests
 
+from ..config import SourceConfig
 from ..model import (
     ALG_AES,
     ALG_EC,
@@ -111,8 +126,9 @@ class GcpKmsCollector(Collector):
     def __init__(self, cfg):
         super().__init__(cfg)
         self.project = str(self.opt.get("project", "")).strip()
-        if not self.project:
-            raise ValueError(f"[{self.name}] project is required")
+        self.discover = not self.project and (bool(self.opt.get("discover", False)) or bool(self.opt.get("projects")))
+        if not self.project and not self.discover:
+            raise ValueError(f"[{self.name}] project is required (or discover: true / projects: [...])")
         self.endpoint = str(self.opt.get("endpoint", "https://cloudkms.googleapis.com")).rstrip("/")
         self.timeout = float(self.opt.get("timeout", 15))
         self.session = requests.Session()
@@ -151,7 +167,63 @@ class GcpKmsCollector(Collector):
                 return out
 
     # ------------------------------------------------------------ collect
+    def _projects(self) -> list[str]:
+        explicit = [str(p) for p in self.opt.get("projects") or []]
+        skip = {str(p) for p in self.opt.get("exclude_projects") or []}
+        if explicit:
+            return [p for p in explicit if p not in skip]
+        crm = str(self.opt.get("resource_manager_endpoint", "https://cloudresourcemanager.googleapis.com")).rstrip("/")
+        query = " ".join(x for x in ("state:ACTIVE", str(self.opt.get("project_query", "")).strip()) if x)
+        out: list[str] = []
+        token = None
+        while True:
+            params = {"query": query, "pageSize": 500}
+            if token:
+                params["pageToken"] = token
+            r = self.session.get(f"{crm}/v3/projects:search", params=params, timeout=self.timeout)
+            if r.status_code >= 400:
+                raise RuntimeError(f"projects:search -> {r.status_code}: {r.text[:200]}")
+            page = r.json()
+            out += [p["projectId"] for p in page.get("projects") or [] if p.get("projectId") not in skip]
+            token = page.get("nextPageToken")
+            if not token:
+                return out
+
+    def _collect_discovered(self) -> list[CryptoAsset]:
+        self._authenticate()
+        projects = self._projects()
+        assets: list[CryptoAsset] = []
+        failures: list[str] = []
+        succeeded = 0
+        for project in projects:
+            opts = {k: v for k, v in self.opt.items() if k not in ("discover", "projects", "exclude_projects",
+                                                                   "project_query")}  # fmt: skip
+            opts["project"] = project
+            child = GcpKmsCollector(SourceConfig(name=self.name, type=self.type_name, options=opts))
+            child.session = self.session
+            child._authenticate = lambda: None  # reuse the parent's credentials
+            try:
+                found = child.collect()
+            except RuntimeError as exc:
+                if "SERVICE_DISABLED" in str(exc) or "has not been used in project" in str(exc):
+                    log.debug("[%s] %s: Cloud KMS API not enabled, no keys", self.name, project)
+                    succeeded += 1
+                    continue
+                failures.append(f"{project}: {exc}")
+                log.warning("[%s] project %s: %s", self.name, project, exc)
+                continue
+            succeeded += 1
+            for a in found:
+                a.extra["project"] = project
+            assets.extend(found)
+        log.info("[%s] %d project(s), %d scanned, %d failure(s)", self.name, len(projects), succeeded, len(failures))
+        if not succeeded and failures:
+            raise RuntimeError(f"every project failed ({len(failures)}); first: {failures[0]}")
+        return assets
+
     def collect(self) -> list[CryptoAsset]:
+        if self.discover:
+            return self._collect_discovered()
         self._authenticate()
         locations = self.opt.get("locations")
         if not locations:

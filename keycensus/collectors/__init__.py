@@ -10,8 +10,10 @@ from .base import Collector, CollectorError
 from .ciphertrust import CipherTrustCollector
 from .gcp_kms import GcpKmsCollector
 from .keysafe5 import KeySafe5Collector
+from .network import NetworkCollector
 from .pem_files import PemCollector
 from .pkcs11 import Pkcs11Collector
+from .ssh_endpoint import SshCollector
 from .tls_endpoint import TlsCollector
 from .vault import VaultCollector
 from .voltage import VoltageCollector
@@ -30,20 +32,24 @@ REGISTRY: dict[str, type[Collector]] = {
         PemCollector,
         TlsCollector,
         AdcsCollector,
+        SshCollector,
+        NetworkCollector,
     )
 }
 
 DESCRIPTIONS = {
     "pkcs11": "Any PKCS#11 HSM: Thales Luna, Entrust nShield, CloudHSM, Utimaco, SoftHSM",
     "vault": "HashiCorp Vault Transit keys and PKI certificates",
-    "aws-kms": "AWS KMS keys (incl. CloudHSM custom key stores)",
-    "azure-keyvault": "Azure Key Vault keys + certificates, and Azure Managed HSM",
-    "gcp-kms": "Google Cloud KMS keys (software, HSM, external protection levels)",
+    "aws-kms": "AWS KMS keys (incl. CloudHSM key stores); one account or every account and region in an Organization",
+    "azure-keyvault": "Azure Key Vault and Managed HSM; one vault or every vault in every subscription",
+    "gcp-kms": "Google Cloud KMS keys (software, HSM, external); one project or every project you can see",
     "ciphertrust": "Thales CipherTrust Manager key vault (REST, beyond PKCS#11)",
     "keysafe5": "Entrust KeySafe 5 / nShield Security World keys (REST, beyond PKCS#11)",
     "voltage": "OpenText Voltage SecureData key inventory export (JSON/CSV, file or URL)",
     "pem": "Certificates and keys in PEM/DER files on disk",
-    "tls": "Live TLS endpoints: negotiated protocol, cipher suite, leaf certificate",
+    "tls": "Live TLS endpoints: protocol, cipher suite, key exchange (classical / hybrid / ML-KEM), leaf certificate",
+    "ssh": "SSH servers: offered key exchange (incl. post-quantum hybrids), host key, cipher and MAC algorithms",
+    "network": "Discovery: scan CIDR ranges for TLS, LDAPS and SSH endpoints, then probe each one",
     "adcs": "Microsoft AD CS: CA certificates and templates from AD (LDAP), issued certificates from certutil",
 }
 

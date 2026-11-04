@@ -50,6 +50,9 @@ rules:
   tls-weak-protocol:         {enabled: true, severity: high}
   tls-weak-cipher:           {enabled: true, severity: high}
   tls-no-forward-secrecy:    {enabled: true, severity: low}
+  quantum-vulnerable-key-exchange: {enabled: true, severity: medium}  # TLS / SSH: harvest-now-decrypt-later
+  hybrid-key-exchange:       {enabled: true, severity: info}   # allowed by NIST IR 8547, but temporary
+  ssh-weak-algorithm:        {enabled: true, severity: high}
   unknown-algorithm:         {enabled: true, severity: info}
   adcs-template-weak-key-size: {enabled: true, severity: medium}  # AD CS template permits weak keys
   unlinked-asset:            {enabled: true, severity: info}   # only evaluated when `applications:` are declared

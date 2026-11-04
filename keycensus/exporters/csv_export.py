@@ -9,6 +9,7 @@ COLUMNS = [
     "purposes", "created", "last_rotated", "expires", "age_days", "days_until_expiry", "state",
     "rotation_enabled", "exportable", "hardware_backed", "fips_validated", "classical_bits",
     "quantum_class", "signature_hash", "subject", "issuer", "protocol_version", "cipher_suites",
+    "key_exchange",
     "location", "applications", "used_by", "findings",
 ]  # fmt: skip
 

@@ -64,6 +64,7 @@ DEFAULT_URGENCY: dict[str, str] = {
     "fips-validation-lost": PAGE,
     "rotation-disabled": PAGE,
     "protocol-weakened": PAGE,
+    "pq-key-exchange-lost": PAGE,
     "state-compromised": PAGE,
     # --- the estate lost something ---------------------------------------
     "asset-removed": PAGE,
@@ -87,6 +88,7 @@ DEFAULT_URGENCY: dict[str, str] = {
     "source-added": DIGEST,
     # --- good news, or noise ---------------------------------------------
     "algorithm-strengthened": IGNORE,
+    "pq-key-exchange-gained": IGNORE,
     "hardware-backing-gained": IGNORE,
     "rotation-enabled": IGNORE,
     "finding-resolved": IGNORE,
@@ -107,6 +109,9 @@ WHY: dict[str, str] = {
     "rotation-disabled": "Automatic rotation was turned off. Nothing breaks today; the cryptoperiod quietly "
     "becomes unbounded.",
     "protocol-weakened": "An endpoint started accepting a protocol version it previously refused.",
+    "pq-key-exchange-lost": "An endpoint that negotiated a hybrid or post-quantum key exchange now negotiates a "
+    "classical one. Usually a config rollback or a new load balancer; traffic is again open to "
+    "harvest-now-decrypt-later.",
     "state-compromised": "A key was marked compromised. Everything it protects is now suspect.",
     "asset-removed": "A key or certificate that existed in the last scan is gone. Either it was deleted, or the "
     "source stopped reporting it -- both are worth knowing within minutes.",
@@ -363,6 +368,15 @@ def _classify_asset(c: AssetChange, table: dict[str, str]) -> list[Change]:
                 sorted(before),
                 sorted(after),
             )
+
+    if "key_exchange" in ch:
+        before, after = ch["key_exchange"]["before"], ch["key_exchange"]["after"]
+        was_pq = strength.key_exchange_class(before)[0] in (strength.QUANTUM_HYBRID, strength.QUANTUM_SAFE)
+        now_pq = strength.key_exchange_class(after)[0] in (strength.QUANTUM_HYBRID, strength.QUANTUM_SAFE)
+        if was_pq and after and not now_pq:
+            emit("pq-key-exchange-lost", f"{who} key exchange {before} -> {after}", "key_exchange", before, after)
+        elif now_pq and not was_pq:
+            emit("pq-key-exchange-gained", f"{who} key exchange {before} -> {after}", "key_exchange", before, after)
 
     if "fingerprint_sha256" in ch:
         emit("certificate-replaced", f"{who} was replaced (new fingerprint)", "fingerprint_sha256")

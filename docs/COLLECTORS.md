@@ -94,6 +94,29 @@ AWS-managed KMS is FIPS 140-3 L3 validated, so `fips_validated: true` is set aut
 
 Requires `pip install "keycensus[aws]"`.
 
+### Every account and region
+
+```yaml
+- name: aws-org
+  type: aws-kms
+  regions: all                      # or [us-east-1, eu-west-1]; "all" = every region enabled in the account
+  organization: true                # every ACTIVE account in the AWS Organization
+  member_role: KeycensusReadOnly    # assumed in each member account
+  # accounts: [111111111111]        # only these
+  # exclude_accounts: [222222222222]
+  # external_id_env: KC_EXTERNAL_ID # if the member role requires sts:ExternalId
+```
+
+Run it from the management account or a delegated administrator. It calls `organizations:ListAccounts`,
+then `sts:AssumeRole` into `arn:aws:iam::<account>:role/<member_role>` in each member account; its own
+account is scanned with its own credentials. Deploy the member role everywhere with a CloudFormation
+StackSet, granting only the KMS read actions above. `regions: all` uses `ec2:DescribeRegions` to list
+the regions enabled in each account and falls back to botocore's KMS region list if that is denied.
+
+Every asset gets `extra.account_id` and `extra.region`. An account whose role is missing, or a region
+that is disabled, is logged and skipped; the source is marked failed only when every account and
+region failed, so one forgotten account does not hide the other forty.
+
 ## `voltage` — OpenText Voltage SecureData
 
 Voltage does not expose a public inventory API; feed keycensus an **export**.
@@ -153,6 +176,26 @@ policy (`lifetimeActions` with a `Rotate` action) → `rotation_enabled`. Certif
 (the public part) and carry the issuer provider and the backing key's `kty`. Asset ids are version-less, so a
 rotation shows up as `last_rotated` changing in diff mode rather than as a new asset.
 
+### Every subscription
+
+```yaml
+- name: azure-all
+  type: azure-keyvault
+  discover: true                      # instead of vault_url
+  # subscriptions: [00000000-...]     # only these; default: every Enabled subscription you can see
+  # exclude_vaults: [sandbox-kv]
+  # vault_dns_suffix: vault.azure.net             # sovereign clouds: vault.usgovcloudapi.net, vault.azure.cn
+  # managed_hsm_dns_suffix: managedhsm.azure.net
+```
+
+Lists subscriptions (`GET /subscriptions`), then every `Microsoft.KeyVault/vaults` and
+`Microsoft.KeyVault/managedHSMs` resource in each, and scans each vault as if it had its own entry, with
+its ARM id already known (so RBAC consumers need no extra lookup). The identity needs *Reader* on the
+subscriptions, simplest at a management group, plus the data-plane roles above on each vault. Assets get
+`extra.subscription_id`, `extra.resource_group` and `extra.vault`. A vault it cannot read is logged and
+skipped; the source fails only if every vault fails. Use `auth: default`: `auth: token` carries one
+data-plane token, and Key Vault and Managed HSM need different audiences.
+
 ### Azure RBAC consumers
 
 `include_rbac` (default on) fills in `used_by` — who is authorised to *use* these keys. Azure has three
@@ -209,6 +252,23 @@ A 403 anywhere in this path is logged and tolerated. No consumer information is 
 `rotation_enabled` (symmetric keys only — GCP has no auto-rotation for asymmetric keys, so those are `null`);
 `primary.createTime` → `last_rotated`; version counts and states, `nextRotationTime`, import jobs and the
 external key URI go to `extra`. Keys whose versions are all destroyed are skipped unless `include_destroyed`.
+
+### Every project
+
+```yaml
+- name: gcp-all
+  type: gcp-kms
+  discover: true                                 # instead of project
+  # project_query: "parent:folders/123456789"    # Cloud Resource Manager search filter
+  # projects: [acme-payments-prod, acme-core]    # or an explicit list
+  # exclude_projects: [acme-sandbox]
+```
+
+Calls Cloud Resource Manager `projects:search` for every ACTIVE project the identity can see, narrowed by
+`project_query` if set, and scans each. Grant `roles/browser` and `roles/cloudkms.viewer` at the
+organization or folder. Projects where the Cloud KMS API was never enabled hold no keys and are skipped
+quietly; any other failure is logged and skipped, and the source fails only if every project fails.
+Assets get `extra.project`.
 
 ## `ciphertrust` — Thales CipherTrust Manager
 
@@ -397,12 +457,90 @@ are recorded as opaque private keys.
   endpoints: ["api.example.com:443", "10.0.0.5:8443"]
   timeout: 5
   probe_legacy: true      # also attempt TLS 1.0 / 1.1 handshakes
+  probe_pqc: true         # TLS 1.3 key exchange group: classical, hybrid or ML-KEM
 ```
 
 One `protocol` asset per endpoint (negotiated version, cipher suite, legacy versions the server
-*also* accepts) plus one `certificate` asset for the leaf. Verification is disabled on purpose —
-we inventory, we don't trust. `probe_legacy` needs an OpenSSL that can still speak TLS 1.0
+*also* accepts, key exchange group) plus one `certificate` asset for the leaf. Verification is disabled
+on purpose — we inventory, we don't trust. `probe_legacy` needs an OpenSSL that can still speak TLS 1.0
 (`@SECLEVEL=0`); if it can't, legacy versions are reported as not accepted.
+
+### Key exchange: classical, hybrid or ML-KEM
+
+Python's `ssl` module cannot report the negotiated TLS group on most installed OpenSSL versions, and
+cannot offer ML-KEM before OpenSSL 3.5. So for TLS 1.3 endpoints keycensus sends its own ClientHello and
+reads the server's first reply, which in TLS 1.3 is unencrypted and names the chosen group. It never
+finishes the handshake. The ML-KEM keys it offers are well-formed but random, so no keys are shared and
+nothing is decrypted. Two probes:
+
+* **preference**: offers what browsers offer (X25519MLKEM768, then X25519, P-256, P-384). The group the
+  server picks becomes `key_exchange` on the asset: what real clients get today.
+* **support**: offers only post-quantum groups (X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
+  MLKEM512/768/1024, and the obsolete X25519Kyber768Draft00), removing each one the server picks, until
+  it refuses. The list goes to `extra.key_exchange.pq_supported`.
+
+| `key_exchange` | Class | Finding |
+|---|---|---|
+| x25519, secp256r1, secp384r1, ffdhe… | `quantum-vulnerable` | `quantum-vulnerable-key-exchange` (medium). If `pq_supported` is not empty, the remediation says so: the fix is the server's preference order, not an upgrade |
+| X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024 | `hybrid` | `hybrid-key-exchange` (info): allowed by NIST IR 8547, but temporary |
+| X25519Kyber768Draft00 | `hybrid` | `hybrid-key-exchange`, noting the post-quantum half is pre-FIPS 203 Kyber |
+| MLKEM512, MLKEM768, MLKEM1024 | `quantum-safe` | none |
+
+TLS 1.2-only endpoints are not probed (TLS 1.2 has no hybrid groups); `key_exchange` stays empty. An
+endpoint that moves from hybrid back to classical between scans raises the `pq-key-exchange-lost` change,
+which pages by default. Tested against OpenSSL 3.5 (Node 22) and Go 1.24 TLS servers. A TLS-intercepting
+proxy between keycensus and the endpoint answers for it, so scan from inside the network you are measuring.
+
+## `ssh` — SSH servers
+
+```yaml
+- name: bastions
+  type: ssh
+  endpoints: ["bastion.example.com", "10.0.0.7:2222"]   # port defaults to 22
+  timeout: 5
+```
+
+An SSH server sends its banner and its list of algorithms (KEXINIT) in the clear before any login. The
+collector reads exactly that and disconnects: no authentication, no key exchange. One `protocol` asset
+per endpoint, with `extra.ssh` holding the offered key exchange, host key, cipher and MAC algorithms.
+`key_exchange` is what a current OpenSSH client would negotiate (the first algorithm in OpenSSH 10's
+default order that the server offers), so a server offering `mlkem768x25519-sha256` (OpenSSH 9.9+) or
+`sntrup761x25519-sha512` (OpenSSH 9.0+) is `hybrid`; NTRU Prime is noted as not a NIST algorithm.
+
+Findings: `quantum-vulnerable-key-exchange` / `hybrid-key-exchange` as for TLS, and `ssh-weak-algorithm`
+(high) when the server offers SHA-1 key exchange or `ssh-rsa` signatures, DSA, CBC/RC4/3DES/Blowfish
+ciphers, or MD5 / truncated SHA-1 MACs. The host key itself is not read (that needs a completed key
+exchange), only the host key algorithms offered.
+
+## `network` — discovery
+
+```yaml
+- name: dc-east
+  type: network
+  cidrs: [10.20.0.0/22, 10.20.8.15]
+  exclude: [10.20.1.0/28]          # never touched, not even a TCP connect
+  ports: {443: tls, 8443: tls, 636: ldaps, 3269: ldaps, 22: ssh}   # the default
+  connect_timeout: 1.0
+  timeout: 5
+  concurrency: 64
+  max_hosts: 4096                  # larger ranges are refused unless you raise this
+  allow_public: false              # public addresses are refused unless you set this
+  probe_legacy: false
+  probe_pqc: true
+  resolve_names: false             # reverse DNS for each endpoint found
+```
+
+Finds endpoints nobody listed. First a plain TCP connect to every host and port in range (no raw packets,
+no root, no SYN scan), then a probe on each open port: `tls` and `ldaps` get the `tls` collector's
+handshake and key exchange probe (a `protocol` asset and the leaf `certificate`), `ssh` gets the `ssh`
+collector's KEXINIT read. Every asset carries `extra.service` and `extra.discovered_by: network`. A port
+that is open but does not speak the expected protocol is logged and skipped. LDAP with StartTLS on 389 is
+not probed yet; LDAPS on 636 and the global catalog on 3269 are.
+
+**Only scan networks you are authorized to scan.** The defaults are deliberately small: private,
+loopback and link-local ranges only, at most 4096 addresses, five ports. Raising `max_hosts` or setting
+`allow_public` should be a written decision. A /22 with the default ports is about 5,000 connects; if every
+port is filtered (each connect waits out `connect_timeout`) that is roughly 80 seconds at the defaults.
 
 ## Writing your own
 

@@ -11,7 +11,7 @@ JSON schema in CI (`tests/test_exporters.py`).
 |---|---|
 | key | `cryptoProperties.assetType: related-crypto-material` — `type` (secret-key / private-key / public-key), `id`, `state`, `creationDate`, `updateDate` (last rotation), `expirationDate`, `size`, `securedBy.mechanism` (HSM / Software), `algorithmRef` → algorithm component |
 | certificate | `assetType: certificate` — `subjectName`, `issuerName`, `notValidBefore/After`, `certificateFormat`, `signatureAlgorithmRef`, `subjectPublicKeyRef` |
-| TLS endpoint | `assetType: protocol` — `type: tls`, `version`, `cipherSuites[]`; legacy versions accepted as `properties` |
+| TLS / SSH endpoint | `assetType: protocol` — `type: tls` or `ssh`, `version`, `cipherSuites[]`; as `properties`: legacy versions accepted, `keycensus:keyExchange` (the negotiated TLS 1.3 group or SSH kex), `keycensus:pqKeyExchangeSupported` (each post-quantum group the server accepts) and `keycensus:quantumClass` (`quantum-vulnerable`, `hybrid` or `quantum-safe`) |
 | algorithm (derived, de-duplicated) | `assetType: algorithm` — `primitive`, `parameterSetIdentifier` (key size), `curve`, `executionEnvironment` (hardware / software-plain-ram), `cryptoFunctions`, `classicalSecurityLevel`, `nistQuantumSecurityLevel`, `certificationLevel` (fips140-3-l3 when known) |
 | finding | `vulnerabilities[]` — `id: KEYCENSUS-<RULE>`, `ratings[].severity`, `recommendation`, `affects[].ref`, control ids as `properties` |
 | source | `metadata.properties` `keycensus:source:<name>` = ok / error |
@@ -25,7 +25,7 @@ can be diffed.
 ## Extra properties
 
 Anything CycloneDX has no field for is carried as `properties` with a `keycensus:` prefix:
-`source`, `sourceType`, `quantumClass` (quantum-vulnerable / quantum-reduced / quantum-safe),
+`source`, `sourceType`, `quantumClass` (quantum-vulnerable / quantum-reduced / hybrid / quantum-safe),
 `rotationEnabled`, `exportable`, `hardwareBacked`, `fipsValidated`, `signatureHash`,
 `selfSigned`, `weakVersionsAccepted`; and your `tags:` as `tag:<key>`.
 

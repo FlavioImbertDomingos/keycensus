@@ -16,6 +16,15 @@
       # resource_id: /subscriptions/.../resourceGroups/rg/providers/Microsoft.KeyVault/vaults/payments-kv
       resolve_principal_names: false   # needs Microsoft Graph Directory.Read.All; off by default
 
+    # Auto-discovery: every Key Vault and Managed HSM in every subscription the identity can see
+    - name: azure-all
+      type: azure-keyvault
+      discover: true
+      subscriptions: [00000000-0000-0000-0000-000000000000]   # optional: only these
+      exclude_vaults: [sandbox-kv]                           # optional: skip by vault name
+      # vault_dns_suffix: vault.azure.net                    # sovereign clouds: vault.usgovcloudapi.net ...
+      # managed_hsm_dns_suffix: managedhsm.azure.net
+
 Talks to the data-plane REST API directly with `requests` (no SDK needed at runtime);
 `pip install 'keycensus[azure]'` adds `azure-identity` for `auth: default` (managed
 identity, workload identity, `az login`, service principal env vars -- the usual chain).
@@ -24,6 +33,14 @@ Needs the *Key Vault Reader* / *Key Vault Crypto User*-style permissions (`keys/
 `keys/get`, `keys/getrotationpolicy`, `certificates/list`, `certificates/get`) on the
 vault, or the `Managed HSM Crypto Auditor` role on a Managed HSM. It never reads key
 material or secrets.
+
+Discovery lists subscriptions (`GET /subscriptions`) and the vaults in each
+(`Microsoft.KeyVault/vaults` and `Microsoft.KeyVault/managedHSMs` resources), so the identity
+also needs *Reader* on the subscriptions (or the management group above them). Each vault is
+then scanned exactly as if it had its own entry, with its ARM id already known. A vault the
+identity cannot read is logged and skipped; the source fails only if every vault fails. Use
+`auth: default` for discovery: `auth: token` carries one data-plane token, and Key Vault and
+Managed HSM need different ones.
 
 What maps to what:
 
@@ -65,6 +82,7 @@ from urllib.parse import urlparse
 import requests
 from cryptography import x509
 
+from ..config import SourceConfig
 from ..model import (
     ALG_AES,
     ALG_EC,
@@ -101,8 +119,9 @@ class AzureKeyVaultCollector(Collector):
     def __init__(self, cfg):
         super().__init__(cfg)
         self.url = str(self.opt.get("vault_url", "")).rstrip("/")
-        if not self.url:
-            raise ValueError(f"[{self.name}] vault_url is required")
+        self.discover = bool(self.opt.get("discover", False)) and not self.url
+        if not self.url and not self.discover:
+            raise ValueError(f"[{self.name}] vault_url is required (or discover: true)")
         host = urlparse(self.url).hostname or ""
         self.managed_hsm = "managedhsm" in host
         self.api_version = str(self.opt.get("api_version", "7.5"))
@@ -122,6 +141,7 @@ class AzureKeyVaultCollector(Collector):
         self.vault_name = host.split(".", 1)[0]
         self._role_names: dict[str, str] = {}  # roleDefinitionId -> display name, cached per run
         self._principals: dict[str, str] = {}  # objectId -> display name
+        self._failures: list[str] = []
 
     # ------------------------------------------------------------ auth
     def _token(self, audience: str | None = None) -> str:
@@ -359,7 +379,72 @@ class AzureKeyVaultCollector(Collector):
         return out
 
     # ------------------------------------------------------------ collect
+    # ------------------------------------------------------------ discovery
+    def _arm_paged(self, url: str, params: dict) -> list[dict]:
+        out: list[dict] = []
+        nxt, p = url, params
+        while nxt:
+            page = self._arm_get(nxt, p)
+            out.extend(page.get("value") or [])
+            nxt, p = page.get("nextLink"), None  # nextLink already carries the query
+        return out
+
+    def _discover(self) -> list[tuple[str, dict]]:
+        """(subscription id, ARM resource) for every Key Vault and Managed HSM in scope."""
+        subs = [str(s) for s in self.opt.get("subscriptions") or []]
+        if not subs:
+            subs = [s["subscriptionId"] for s in self._arm_paged(f"{self.arm_endpoint}/subscriptions",
+                                                                  {"api-version": "2022-12-01"})
+                    if s.get("state", "Enabled") == "Enabled"]  # fmt: skip
+        skip = {str(v).lower() for v in self.opt.get("exclude_vaults") or []}
+        found = []
+        for sub in subs:
+            try:
+                resources = self._arm_paged(f"{self.arm_endpoint}/subscriptions/{sub}/resources", {
+                    "api-version": "2021-04-01",
+                    "$filter": "resourceType eq 'Microsoft.KeyVault/vaults' or "
+                               "resourceType eq 'Microsoft.KeyVault/managedHSMs'",
+                })  # fmt: skip
+            except RuntimeError as exc:
+                self._failures.append(f"subscription {sub}: {exc}")
+                log.warning("[%s] cannot list vaults in subscription %s: %s", self.name, sub, exc)
+                continue
+            found += [(sub, r) for r in resources if str(r.get("name", "")).lower() not in skip]
+        return found
+
+    def _collect_discovered(self) -> list[CryptoAsset]:
+        vault_suffix = str(self.opt.get("vault_dns_suffix", "vault.azure.net"))
+        hsm_suffix = str(self.opt.get("managed_hsm_dns_suffix", "managedhsm.azure.net"))
+        assets: list[CryptoAsset] = []
+        vaults = self._discover()
+        succeeded = 0
+        for sub, res in vaults:
+            hsm = str(res.get("type", "")).lower().endswith("managedhsms")
+            url = f"https://{res['name']}.{hsm_suffix if hsm else vault_suffix}"
+            opts = {k: v for k, v in self.opt.items() if k not in ("discover", "subscriptions", "exclude_vaults")}
+            opts.update({"vault_url": url, "resource_id": res.get("id"), "subscription_id": sub})
+            child = AzureKeyVaultCollector(SourceConfig(name=self.name, type=self.type_name, options=opts))
+            try:
+                found = child.collect()
+            except Exception as exc:  # noqa: BLE001 - one unreadable vault must not end the scan
+                self._failures.append(f"{res['name']}: {exc}")
+                log.warning("[%s] vault %s: %s", self.name, res["name"], exc)
+                continue
+            succeeded += 1
+            rid = str(res.get("id", ""))
+            rg = rid.split("/resourceGroups/", 1)[1].split("/", 1)[0] if "/resourceGroups/" in rid else None
+            for a in found:
+                a.extra.update({"subscription_id": sub, "resource_group": rg, "vault": res["name"]})
+            assets.extend(found)
+        log.info("[%s] %d vault(s) found, %d scanned, %d failure(s)", self.name, len(vaults), succeeded,
+                 len(self._failures))  # fmt: skip
+        if not succeeded and self._failures:
+            raise RuntimeError(f"every subscription / vault failed ({len(self._failures)}); first: {self._failures[0]}")
+        return assets
+
     def collect(self) -> list[CryptoAsset]:
+        if self.discover:
+            return self._collect_discovered()
         self.session.headers["Authorization"] = f"Bearer {self._token()}"
         include_disabled = bool(self.opt.get("include_disabled", True))
         assets: list[CryptoAsset] = []
