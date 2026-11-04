@@ -36,6 +36,8 @@ def test_registry_has_all_types():
         "ciphertrust",
         "keysafe5",
         "adcs",
+        "ssh",
+        "network",
     }
 
 

@@ -38,6 +38,7 @@ WATCHED = (
     "signature_hash",
     "protocol_version",
     "weak_versions_accepted",
+    "key_exchange",
     "fingerprint_sha256",
     "location",
     "name",

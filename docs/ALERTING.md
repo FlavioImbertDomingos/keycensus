@@ -43,6 +43,7 @@ keycensus changes --kinds        # the whole vocabulary and its default urgency
 | `algorithm-weakened` | Effective strength went down: a shorter key, or a re-key to a weaker algorithm. Judged with the same strength model the findings use, so RSA-3072 → RSA-2048 counts and RSA-2048 → RSA-4096 does not. |
 | `rotation-disabled` | Nothing breaks today. The cryptoperiod quietly becomes unbounded. |
 | `protocol-weakened` | An endpoint started accepting a TLS version it previously refused. |
+| `pq-key-exchange-lost` | An endpoint that negotiated a hybrid or ML-KEM key exchange (TLS 1.3 group or SSH kex) now negotiates a classical one. Usually a config rollback or a new load balancer; its traffic is open to harvest-now-decrypt-later again. The reverse, `pq-key-exchange-gained`, is ignored by default. |
 | `state-compromised` | A key was marked compromised. Everything it protects is suspect. |
 | `source-broken` | A source that worked now errors, so the inventory is incomplete — and every other alert on it is unreliable until it is fixed. |
 | `source-removed` | A source left the config; its assets are no longer watched by anything. |

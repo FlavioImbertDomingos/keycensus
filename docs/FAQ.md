@@ -45,6 +45,19 @@ container. The CA certificates and templates come straight from LDAP; for the is
 a scheduled `certutil -view ... csv` on each CA is the dependable path. The exact command is in
 [COLLECTORS.md](COLLECTORS.md#adcs--microsoft-active-directory-certificate-services).
 
+**Is the network scan safe to run?**
+It is a TCP connect to each address and port in range, then a TLS handshake or an SSH banner read on the
+ports that answered. No exploits, no logins, no raw packets, no root. It still looks like a scan to an IDS,
+so tell your network team first, and only scan ranges you are authorized to scan. By default it refuses
+public addresses and ranges over 4096 addresses.
+
+**How does keycensus see X25519MLKEM768 when my OpenSSL is 3.0?**
+It does not use OpenSSL for that part. It writes the TLS 1.3 ClientHello itself, offering the hybrid
+groups, and reads which group the server picks from the reply, which is unencrypted in TLS 1.3. The
+handshake is never finished. See [COLLECTORS.md](COLLECTORS.md#key-exchange-classical-hybrid-or-ml-kem).
+If a TLS-inspecting proxy sits between keycensus and the server, the proxy answers instead, so run it from
+inside the network you are measuring.
+
 **Can I use it without Docker?**
 `pip install "keycensus[all]"` and `keycensus scan -c config.yml`. Docker is only for the demo
 stack and the container image. The PKCS#11 extra needs the vendor library on the host.

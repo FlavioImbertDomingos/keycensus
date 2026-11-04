@@ -138,7 +138,7 @@ def _cert_component(asset: CryptoAsset, sig_ref: str | None) -> dict:
 
 
 def _protocol_component(asset: CryptoAsset) -> dict:
-    pp: dict = {"type": "tls"}
+    pp: dict = {"type": "ssh" if (asset.protocol or "").upper() == "SSH" else "tls"}
     if asset.protocol_version:
         pp["version"] = asset.protocol_version.replace("TLSv", "")
     if asset.cipher_suites:
@@ -149,7 +149,12 @@ def _protocol_component(asset: CryptoAsset) -> dict:
         "name": asset.name,
         "cryptoProperties": {"assetType": "protocol", "protocolProperties": pp},
         "properties": _props(asset)
-        + [{"name": "keycensus:weakVersionsAccepted", "value": v} for v in asset.weak_versions_accepted],
+        + [{"name": "keycensus:weakVersionsAccepted", "value": v} for v in asset.weak_versions_accepted]
+        + ([{"name": "keycensus:keyExchange", "value": asset.key_exchange}] if asset.key_exchange else [])
+        + [
+            {"name": "keycensus:pqKeyExchangeSupported", "value": g}
+            for g in ((asset.extra or {}).get("key_exchange") or {}).get("pq_supported") or []
+        ],  # fmt: skip
     }
 
 

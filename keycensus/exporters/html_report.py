@@ -16,6 +16,7 @@ _Q_CSS = {
     strength.QUANTUM_VULNERABLE: "vuln",
     strength.QUANTUM_REDUCED: "reduced",
     strength.QUANTUM_SAFE: "safe",
+    strength.QUANTUM_HYBRID: "hybrid",
     strength.QUANTUM_UNKNOWN: "",
 }
 
@@ -31,11 +32,16 @@ def render(inv: Inventory) -> str:
 
     assets = []
     pqc = {"vulnerable": 0, "reduced": 0, "safe": 0, "unknown": 0, "total": 0}
+    kex = {"classical": 0, "hybrid": 0, "pqc": 0, "unprobed": 0}
     for a in inv.assets:
         d = a.to_dict()
         s = strength.assess(a)
-        d["quantum_class"] = s.quantum_class if a.kind != KIND_PROTOCOL else "n/a"
-        d["q_css"] = _Q_CSS.get(s.quantum_class, "") if a.kind != KIND_PROTOCOL else ""
+        probed = a.kind != KIND_PROTOCOL or a.key_exchange
+        d["quantum_class"] = s.quantum_class if probed else "n/a"
+        d["q_css"] = _Q_CSS.get(s.quantum_class, "") if probed else ""
+        if a.kind == KIND_PROTOCOL:
+            kex[{strength.QUANTUM_VULNERABLE: "classical", strength.QUANTUM_HYBRID: "hybrid",
+                 strength.QUANTUM_SAFE: "pqc"}.get(s.quantum_class, "unprobed")] += 1  # fmt: skip
         d["created"] = (iso(a.created) or "")[:10] or None
         d["last_rotated"] = (iso(a.last_rotated) or "")[:10] or None
         d["expires"] = (iso(a.expires) or "")[:10] or None
@@ -77,6 +83,7 @@ def render(inv: Inventory) -> str:
             for s in inv.sources
         ],
         pqc=pqc,
+        kex=kex,
         applications=impact(inv),
         controls=controls,
         control_titles=control_titles,

@@ -99,14 +99,15 @@ groups:
 
       - alert: KeycensusCryptoWeakened
         expr: >-
-          increase(keycensus_change_total{kind=~"algorithm-weakened|hardware-backing-lost|fips-validation-lost|protocol-weakened"}[1h]) > 0
+          increase(keycensus_change_total{kind=~"algorithm-weakened|hardware-backing-lost|fips-validation-lost|protocol-weakened|pq-key-exchange-lost"}[1h]) > 0
         labels: {severity: high}
         annotations:
           summary: "{{ $labels.kind }} on {{ $labels.source }}"
           description: >-
             Effective strength or assurance went down: a shorter key, a software-held key that used
-            to be in hardware, a lost FIPS boundary, or an endpoint that started accepting a
-            protocol it previously refused.
+            to be in hardware, a lost FIPS boundary, an endpoint that started accepting a
+            protocol it previously refused, or an endpoint that fell back from a hybrid or
+            ML-KEM key exchange to a classical one.
 
       - alert: KeycensusRotationDisabled
         expr: increase(keycensus_change_total{kind="rotation-disabled"}[1h]) > 0

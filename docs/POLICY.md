@@ -51,6 +51,9 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 | `tls-weak-protocol` | negotiates or accepts SSLv3/TLS 1.0/1.1 | high | 4.2.1, 12.3.3 |
 | `tls-weak-cipher` | RC4, 3DES, NULL, EXPORT, anon, MD5, RC2, IDEA | high | 4.2.1, 12.3.3 |
 | `tls-no-forward-secrecy` | non-(EC)DHE suite | low | 4.2.1 |
+| `quantum-vulnerable-key-exchange` | TLS 1.3 group or SSH kex is classical (x25519, P-256, curve25519-sha256 …) | medium | IR 8547, EO 14412, 12.3.3 |
+| `hybrid-key-exchange` | TLS 1.3 group or SSH kex is hybrid (X25519MLKEM768, mlkem768x25519-sha256, sntrup761x25519 …): allowed, but temporary | info | IR 8547 |
+| `ssh-weak-algorithm` | SSH server offers SHA-1 kex or `ssh-rsa`, DSA, CBC/RC4/3DES, MD5 or truncated SHA-1 MACs | high | SP 800-131A, 12.3.3 |
 | `unknown-algorithm` | collector could not identify the algorithm | info | 12.3.3 |
 | `adcs-template-weak-key-size` | an AD CS CA publishes a template whose minimum key size is weak by the `weak-key-size` test | medium | 3.7.1, SP 800-131A |
 
@@ -81,6 +84,12 @@ NIST does not expect to move off AES-128/192/256 or SHA-2. keycensus still flags
 as `quantum-reduced` (info) as a margin note for data that must stay secret for decades, and the
 finding cites no control. Disable it if you follow NIST's reading. Dates and sources:
 [PQC-TIMELINE.md](PQC-TIMELINE.md).
+
+Endpoints get the same treatment for key exchange. A TLS 1.3 or SSH endpoint whose negotiated key
+exchange is classical gets `quantum-vulnerable-key-exchange` (medium): recorded traffic is the
+harvest-now-decrypt-later case. A hybrid gets `hybrid-key-exchange` (info), because NIST IR 8547 allows
+hybrids but calls them temporary and expects a second move to ML-KEM only. A pure ML-KEM group gets
+nothing. The `tls-*` rules run only on TLS endpoints, never on SSH.
 
 ## Examples
 

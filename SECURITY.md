@@ -19,13 +19,17 @@ with names, locations and weaknesses. Treat both the config and the outputs acco
   (algorithm, size, fingerprint), not embedded.
 - **TLS verification on by default** for Vault, Voltage and AD CS LDAPS URLs; the `tls` collector disables
   verification *only* for the endpoint it's inventorying (it reports the cert; it doesn't trust it).
+- **Probes, not attacks.** The TLS key exchange probe sends a ClientHello and reads one reply, never
+  finishing the handshake; the SSH probe reads the banner and algorithm list, never logging in. The
+  `network` collector refuses public ranges and ranges over 4096 addresses unless told otherwise.
 - **No clear-text LDAP passwords.** The AD CS collector refuses a simple bind over plain `ldap://`;
   it needs `ldaps://`, StartTLS or Kerberos.
 - **Minimal privileges documented** per collector in `docs/COLLECTORS.md`.
 - **Unprivileged container**, non-root UID, no capabilities.
 - Dependencies: `click`, `PyYAML`, `cryptography`, `jinja2`, `requests`, `prometheus-client`,
   plus optional `python-pkcs11`, `hvac`, `boto3`, `azure-identity`, `google-auth`, `ldap3` (and
-  `gssapi` for AD CS Kerberos).
+  `gssapi` for AD CS Kerberos). The TLS 1.3 and SSH probes are written against the RFCs with the
+  standard library and `cryptography`; no extra dependency.
 
 ## What you should do
 
@@ -37,6 +41,10 @@ with names, locations and weaknesses. Treat both the config and the outputs acco
   with only the five `kms:*` read actions; a dedicated AD account with no rights beyond domain user
   for the AD CS LDAP bind.
 - Rotate the credentials keycensus uses like any other service credential.
+- For cloud discovery, give keycensus a read-only role (an AWS member role with only KMS read actions,
+  Azure *Reader* plus the Key Vault read roles, GCP `roles/browser` and `roles/cloudkms.viewer`), never an
+  administrator role such as `OrganizationAccountAccessRole`.
+- Get written approval before pointing the `network` collector at a range, and tell whoever watches the IDS.
 
 ## Out of scope
 

@@ -9,9 +9,22 @@
       include_pending_deletion: true
       include_consumers: true          # who uses the key: grants + key policy principals -> used_by
 
+      # Auto-discovery (leave out to scan one account, one region):
+      regions: all                     # or a list; "all" = every region enabled in the account
+      organization: true               # every ACTIVE account in the AWS Organization
+      member_role: KeycensusReadOnly   # role assumed in each member account (deploy it with a StackSet)
+      accounts: [111111111111]         # optional: only these accounts
+      exclude_accounts: []             # optional: never these
+      external_id_env: KC_EXTERNAL_ID  # optional: sts:ExternalId for the member role
+
 Needs `kms:ListKeys`, `kms:DescribeKey`, `kms:GetKeyRotationStatus`, `kms:ListAliases`,
 `kms:ListResourceTags`, and for `include_consumers` also `kms:ListGrants` and `kms:GetKeyPolicy`
-(both tolerated when denied). Requires `pip install 'keycensus[aws]'`.
+(both tolerated when denied). `regions: all` adds `ec2:DescribeRegions`. `organization: true` runs
+from the management account or a delegated administrator, needs `organizations:ListAccounts` and
+`sts:AssumeRole` on `arn:aws:iam::*:role/<member_role>`, and the member role needs the KMS
+permissions above. The caller's own account is scanned with its own credentials. One account or
+region that fails (role missing, region disabled) is logged and skipped; the source fails only if
+every target fails. Requires `pip install 'keycensus[aws]'`.
 """
 
 from __future__ import annotations
@@ -81,6 +94,10 @@ class AwsKmsCollector(Collector):
     type_name = "aws-kms"
     requires_extra = "aws"
 
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self._failures = []
+
     def collect(self) -> list[CryptoAsset]:
         import boto3
 
@@ -88,11 +105,96 @@ class AwsKmsCollector(Collector):
         if self.opt.get("profile"):
             session_kwargs["profile_name"] = self.opt["profile"]
         session = boto3.session.Session(**session_kwargs)
-        client_kwargs = {"region_name": self.opt.get("region")}
-        if self.opt.get("endpoint_url"):
-            client_kwargs["endpoint_url"] = self.opt["endpoint_url"]
-        kms = session.client("kms", **client_kwargs)
+        if not self.opt.get("organization") and not self.opt.get("regions"):
+            return self._collect_one(self._client(session, "kms", self.opt.get("region")))
 
+        targets: list[tuple[str, object]] = []  # (account id, session)
+        me = self._client(session, "sts", self.opt.get("region") or "us-east-1").get_caller_identity()["Account"]
+        if self.opt.get("organization"):
+            for account_id in self._org_accounts(session):
+                if account_id == me:
+                    targets.append((me, session))
+                    continue
+                try:
+                    targets.append((account_id, self._assume(session, account_id)))
+                except Exception as exc:  # noqa: BLE001 - one account must not end the scan
+                    self._failures.append(f"{account_id}: {exc}")
+                    log.warning("[%s] cannot assume the member role in %s: %s", self.name, account_id, exc)
+        else:
+            targets.append((me, session))
+
+        assets: list[CryptoAsset] = []
+        tried = succeeded = 0
+        for account_id, sess in targets:
+            for region in self._regions(sess):
+                tried += 1
+                try:
+                    found = self._collect_one(self._client(sess, "kms", region))
+                except Exception as exc:  # noqa: BLE001 - a disabled region or a denied account is not fatal
+                    self._failures.append(f"{account_id}/{region}: {exc}")
+                    log.warning("[%s] %s / %s: %s", self.name, account_id, region, exc)
+                    continue
+                succeeded += 1
+                for a in found:
+                    a.extra.update({"account_id": account_id, "region": region})
+                assets.extend(found)
+        if not succeeded and self._failures:
+            raise RuntimeError(f"every account / region failed ({len(self._failures)}); first: {self._failures[0]}")
+        log.info("[%s] %d account(s), %d account-region pair(s), %d failure(s)", self.name, len(targets), tried,
+                 len(self._failures))  # fmt: skip
+        return assets
+
+    # ------------------------------------------------------------ discovery helpers
+    def _client(self, session, service: str, region: str | None):
+        kwargs = {"region_name": region}
+        if self.opt.get("endpoint_url"):
+            kwargs["endpoint_url"] = self.opt["endpoint_url"]
+        return session.client(service, **kwargs)
+
+    def _org_accounts(self, session) -> list[str]:
+        only = {str(a) for a in self.opt.get("accounts") or []}
+        skip = {str(a) for a in self.opt.get("exclude_accounts") or []}
+        org = self._client(session, "organizations", self.opt.get("region") or "us-east-1")
+        out = []
+        for page in org.get_paginator("list_accounts").paginate():
+            for acct in page.get("Accounts", []):
+                aid = str(acct["Id"])
+                if acct.get("Status", "ACTIVE") != "ACTIVE" or aid in skip or (only and aid not in only):
+                    continue
+                out.append(aid)
+        return out
+
+    def _assume(self, session, account_id: str):
+        import boto3
+
+        role = str(self.opt.get("member_role", "KeycensusReadOnly"))
+        kwargs = {"RoleArn": f"arn:aws:iam::{account_id}:role/{role}", "RoleSessionName": "keycensus"}
+        ext = self.cfg.secret("external_id")
+        if ext:
+            kwargs["ExternalId"] = ext
+        creds = self._client(session, "sts", self.opt.get("region") or "us-east-1").assume_role(**kwargs)
+        c = creds["Credentials"]
+        return boto3.session.Session(aws_access_key_id=c["AccessKeyId"], aws_secret_access_key=c["SecretAccessKey"],
+                                     aws_session_token=c["SessionToken"])  # fmt: skip
+
+    def _regions(self, session) -> list[str]:
+        regions = self.opt.get("regions")
+        if not regions:
+            return [self.opt.get("region") or session.region_name or "us-east-1"]
+        if isinstance(regions, list):
+            return [str(r) for r in regions]
+        if str(regions).lower() != "all":
+            return [str(regions)]
+        try:
+            ec2 = self._client(session, "ec2", self.opt.get("region") or "us-east-1")
+            found = [r["RegionName"] for r in ec2.describe_regions(AllRegions=False)["Regions"]]
+            if found:
+                return sorted(found)
+        except Exception as exc:  # noqa: BLE001 - fall back to the static list
+            log.info("[%s] ec2:DescribeRegions failed (%s); using every KMS region botocore knows", self.name, exc)
+        return sorted(session.get_available_regions("kms"))
+
+    def _collect_one(self, kms) -> list[CryptoAsset]:
         aliases: dict[str, list[str]] = {}
         for page in kms.get_paginator("list_aliases").paginate():
             for a in page.get("Aliases", []):

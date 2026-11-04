@@ -46,6 +46,7 @@ from ..model import (
 QUANTUM_VULNERABLE = "quantum-vulnerable"  # broken by Shor's algorithm
 QUANTUM_REDUCED = "quantum-reduced"  # Grover halves the strength; may still be OK
 QUANTUM_SAFE = "quantum-safe"  # PQC algorithm or symmetric ≥ 256-bit
+QUANTUM_HYBRID = "hybrid"  # classical + post-quantum key exchange: allowed by NIST IR 8547, but temporary
 QUANTUM_UNKNOWN = "unknown"
 
 PUBLIC_KEY_CLASSICAL = {ALG_RSA, ALG_EC, ALG_DSA, ALG_DH, ALG_ED25519, ALG_ED448, ALG_X25519}
@@ -84,7 +85,46 @@ class Strength:
     note: str
 
 
+# Key exchange used by protocol endpoints. TLS names come from the IANA supported-groups registry,
+# SSH names from the kex algorithm lists (RFC 9142, draft-ietf-sshm-mlkem-hybrid-kex).
+_KEX_HYBRID = {
+    "x25519mlkem768", "secp256r1mlkem768", "secp384r1mlkem1024",
+    "mlkem768x25519-sha256", "mlkem768nistp256-sha256", "mlkem1024nistp384-sha384",
+}  # fmt: skip
+# Hybrids whose post-quantum half is not a NIST standard: pre-FIPS 203 Kyber, and Streamlined NTRU Prime.
+_KEX_HYBRID_NONSTANDARD = {
+    "x25519kyber768draft00", "sntrup761x25519-sha512", "sntrup761x25519-sha512@openssh.com",
+}  # fmt: skip
+_KEX_PQC = {"mlkem512", "mlkem768", "mlkem1024"}
+
+
+def key_exchange_class(name: str | None) -> tuple[str, str]:
+    """(quantum class, note) for a TLS group or SSH kex algorithm name."""
+    if not name:
+        return QUANTUM_UNKNOWN, "Key exchange not probed."
+    n = name.lower()
+    if n in _KEX_PQC:
+        return QUANTUM_SAFE, f"{name}: pure ML-KEM (FIPS 203) key exchange."
+    if n in _KEX_HYBRID:
+        return QUANTUM_HYBRID, (
+            f"{name}: hybrid of a classical and an ML-KEM key exchange. NIST IR 8547 allows hybrids but calls them "
+            "temporary and expects a second transition to ML-KEM only."
+        )
+    if n in _KEX_HYBRID_NONSTANDARD:
+        return QUANTUM_HYBRID, (
+            f"{name}: hybrid whose post-quantum half is not a NIST standard (pre-FIPS 203 Kyber or NTRU Prime). "
+            "Protects against harvest-now-decrypt-later, but move to an ML-KEM hybrid."
+        )
+    return QUANTUM_VULNERABLE, (
+        f"{name}: classical key exchange, broken by Shor's algorithm. Traffic recorded today can be decrypted later "
+        "(NIST IR 8547: deprecated after 2030, disallowed after 2035)."
+    )
+
+
 def assess(asset: CryptoAsset) -> Strength:
+    if asset.kind == "protocol":
+        q, note = key_exchange_class(asset.key_exchange)
+        return Strength(None, q, None, note)
     alg = asset.algorithm
     size = asset.key_size
     if asset.curve and not size:

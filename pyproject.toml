@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keycensus"
-version = "0.6.1"
+version = "0.7.0"
 description = "Cryptographic inventory (CBOM) and key-hygiene scanner for HSMs, KMSs, Vault, AD CS, certificates and TLS endpoints"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [{ name = "Flavio Domingos" }]
-keywords = ["cbom", "cyclonedx", "cryptography", "inventory", "pci-dss", "pqc", "hsm", "kms", "vault", "azure", "gcp", "ciphertrust", "nshield", "adcs", "active-directory", "pki", "dependency-track"]
+keywords = ["cbom", "cyclonedx", "ssh", "network-discovery", "ml-kem", "cryptography", "inventory", "pci-dss", "pqc", "hsm", "kms", "vault", "azure", "gcp", "ciphertrust", "nshield", "adcs", "active-directory", "pki", "dependency-track"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: Apache Software License",
