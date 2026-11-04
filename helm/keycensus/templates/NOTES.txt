@@ -6,6 +6,16 @@ Serve mode: rescans every {{ .Values.mode.serve.interval }} and serves
 
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "keycensus.fullname" . }} {{ .Values.service.port }}
   open http://localhost:{{ .Values.service.port }}/report.html      (also /cbom.json /inventory.json /metrics)
+{{- if or .Values.mode.serve.auth.generateToken .Values.mode.serve.auth.existingTokenSecret }}
+
+The report, CBOM and JSON need a token (the browser asks; any user name, the token as password):
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Values.mode.serve.auth.existingTokenSecret | default (printf "%s-serve-token" (include "keycensus.fullname" .)) }} -o jsonpath='{.data.{{ .Values.mode.serve.auth.tokenSecretKey }}}' | base64 -d
+  curl -H "Authorization: Bearer $TOKEN" http://localhost:{{ .Values.service.port }}/cbom.json
+{{- else if .Values.mode.serve.auth.allowUnauthenticated }}
+
+WARNING: the report and CBOM are served without authentication (mode.serve.auth.allowUnauthenticated).
+{{- end }}
 {{- end }}
 {{- if .Values.mode.scan.enabled }}
 

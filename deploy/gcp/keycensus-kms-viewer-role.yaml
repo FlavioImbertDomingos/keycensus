@@ -1,0 +1,19 @@
+# Custom role with exactly what the gcp-kms collector reads.
+#
+#   gcloud iam roles create keycensusKmsViewer --organization=ORG_ID --file=keycensus-kms-viewer-role.yaml
+#   gcloud organizations add-iam-policy-binding ORG_ID \
+#     --member=serviceAccount:keycensus@PROJECT.iam.gserviceaccount.com \
+#     --role=organizations/ORG_ID/roles/keycensusKmsViewer
+#
+# Bind it at the organization (or a folder) so discover: true sees every project below it.
+title: keycensus KMS viewer
+description: List projects and Cloud KMS keys, read key metadata and IAM bindings. No key use, no key material.
+stage: GA
+includedPermissions:
+  - resourcemanager.projects.get        # projects:search for discover: true
+  - cloudkms.locations.list
+  - cloudkms.keyRings.list
+  - cloudkms.cryptoKeys.list
+  - cloudkms.cryptoKeys.get
+  - cloudkms.cryptoKeyVersions.list
+  - cloudkms.cryptoKeys.getIamPolicy    # include_iam (consumers)

@@ -15,18 +15,23 @@
 Optionally, `applications:` declares which application uses which key (see
 keycensus.linking) and `linking: {auto_match: true}` tunes the automatic matching.
 
-Secrets are referenced by environment variable (`*_env`) or file (`*_file`),
-never written into the YAML.
+Secrets are referenced by environment variable (`*_env`), file (`*_file`), or a secret
+store (`*_vault`, `*_aws_secret`, `*_azure_secret`, `*_gcp_secret`; see keycensus.secrets),
+never written into the YAML. Optional top-level blocks: `secrets:` (secret store settings),
+`serve:` (listen address, auth, TLS), `audit:` (hash-chained audit log), `signing:` (signed
+scan records).
 """
 
 from __future__ import annotations
 
-import os
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from . import secrets
 
 
 class ConfigError(Exception):
@@ -40,21 +45,11 @@ class SourceConfig:
     options: dict[str, Any] = field(default_factory=dict)
 
     def secret(self, key: str, required: bool = False) -> str | None:
-        """Resolve `<key>_file`, then `<key>_env`, then plain `<key>`."""
-        if self.options.get(f"{key}_file"):
-            p = Path(self.options[f"{key}_file"])
-            if not p.exists():
-                raise ConfigError(f"[{self.name}] {key}_file {p} does not exist")
-            return p.read_text().strip()
-        if self.options.get(f"{key}_env"):
-            val = os.environ.get(self.options[f"{key}_env"])
-            if not val and required:
-                raise ConfigError(f"[{self.name}] env var {self.options[f'{key}_env']} is not set")
-            return val
-        val = self.options.get(key)
-        if val is None and required:
-            raise ConfigError(f"[{self.name}] needs {key}, {key}_env or {key}_file")
-        return str(val) if val is not None else None
+        """Resolve `<key>_file`, `<key>_env`, a secret store reference, then plain `<key>`."""
+        try:
+            return secrets.resolve(self.options, key, owner=self.name, required=required)
+        except secrets.SecretError as exc:
+            raise ConfigError(str(exc)) from exc
 
 
 @dataclass
@@ -67,11 +62,15 @@ class Config:
     notifications: dict[str, Any] | None = None  # see keycensus.notify; None = no block, {} = defaults
     change_urgency: dict[str, str] = field(default_factory=dict)  # see keycensus.changes
     base_dir: str | None = None  # directory of the config file; relative SBOM paths resolve against it
+    audit: dict[str, Any] | None = None  # see keycensus.audit
+    signing: dict[str, Any] | None = None  # see keycensus.signing
+    config_sha256: str | None = None  # of the config file as loaded, for the audit log and signed manifests
 
 
 def load(path: str | Path) -> Config:
-    with open(path) as fh:
-        raw = yaml.safe_load(fh) or {}
+    data = Path(path).read_bytes()
+    raw = yaml.safe_load(data) or {}
+    secrets.configure(raw.get("secrets") or {})
     sources_raw = raw.get("sources") or []
     if not sources_raw:
         raise ConfigError(f"{path}: 'sources' list is empty")
@@ -92,6 +91,9 @@ def load(path: str | Path) -> Config:
     changes = raw.get("changes") or {}
     if not isinstance(changes, dict):
         raise ConfigError(f"{path}: 'changes' must be a mapping")
+    for block in ("serve", "audit", "signing", "secrets"):
+        if raw.get(block) is not None and not isinstance(raw.get(block), dict):
+            raise ConfigError(f"{path}: '{block}' must be a mapping")
     urgency = changes.get("urgency") or {}
     if not isinstance(urgency, dict):
         raise ConfigError(f"{path}: 'changes.urgency' must be a mapping of change kind -> page|digest|ignore")
@@ -114,4 +116,7 @@ def load(path: str | Path) -> Config:
         notifications=raw.get("notifications"),
         change_urgency={str(k): str(v) for k, v in urgency.items()},
         base_dir=str(Path(path).resolve().parent),
+        audit=raw.get("audit"),
+        signing=raw.get("signing"),
+        config_sha256=hashlib.sha256(data).hexdigest(),
     )

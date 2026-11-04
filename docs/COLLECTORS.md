@@ -2,7 +2,9 @@
 
 Each entry under `sources:` in the config has a `name` (your label, becomes the `source`
 field on every asset), a `type` (one of the below), and type-specific options.
-Secrets are always `*_env` (environment variable) or `*_file` (path), never inline.
+Secrets are always `*_env` (environment variable), `*_file` (path) or a secret store reference
+(`*_vault`, `*_aws_secret`, `*_azure_secret`, `*_gcp_secret`; see [PERMISSIONS.md](PERMISSIONS.md)),
+never inline. The permissions each source needs are in [PERMISSIONS.md](PERMISSIONS.md) and `deploy/`.
 
 Every collector runs inside a try/except: one broken source is reported as `error`
 in the output and the others still scan. `keycensus scan` exits `2` if any source failed.

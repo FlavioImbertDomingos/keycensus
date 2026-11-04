@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.8.0 — 2026-11-04
+
+**Safe to leave running.** Stage 1 of the roadmap: the report and CBOM need a token, every scan can be
+signed and audited, credentials can come from a secret store, and the image itself is signed.
+
+**`serve` needs a token**
+
+- Listens on 127.0.0.1 by default. On any other address it refuses to start without a token, unless
+  `serve.allow_unauthenticated` (or `--insecure-no-auth`) says a proxy in front authenticates.
+- Named tokens under `serve.auth.tokens` (any secret reference), plus `$KEYCENSUS_SERVE_TOKEN` as a
+  token named "default". `Authorization: Bearer`, or Basic in a browser with the token as the password.
+  Tokens are kept only as SHA-256 digests and compared in constant time; 16 characters minimum.
+- `/metrics`, `/healthz` and the new `/livez` stay public (configurable with `public_paths`); everything
+  else needs a token.
+- HTTPS with `serve.tls` or `--tls-cert/--tls-key`. Security headers on every response.
+- `serve.listen` and `serve.port` in the config; `--listen` and `--port` still override.
+- **Upgrade note:** the image sets `KEYCENSUS_LISTEN=0.0.0.0`, so a container now needs
+  `KEYCENSUS_SERVE_TOKEN` (or `allow_unauthenticated`) to start. The Helm chart creates a token Secret;
+  the demo compose file allows unauthenticated access and publishes the port on 127.0.0.1 only.
+
+**Secrets from a secret store**
+
+- Every `<key>_env` option also accepts `<key>_vault` (HashiCorp Vault KV v1/v2; token or Kubernetes
+  auth), `<key>_aws_secret` (AWS Secrets Manager), `<key>_azure_secret` (Azure Key Vault) and
+  `<key>_gcp_secret` (GCP Secret Manager), with `#field` for JSON secrets. Backends are configured in a
+  top-level `secrets:` block and only contacted when used; values are cached for 5 minutes.
+
+**Audit log**
+
+- `audit: {path, hmac_key_env}` appends one JSON object per line, each carrying the previous entry's
+  hash (HMAC-SHA-256 when a key is set): `scan.start` (config and policy hashes, each source's credential
+  references), `scan.end` (results and output hashes), `config.changed`, `serve.read` (path, token name,
+  client), `serve.denied`, `webhook.sent` (endpoint host only) and `scan.signed`. A `.head` file keeps the
+  chain going across log rotation.
+- `keycensus audit verify FILE` checks every link and reports the first edited or missing entry.
+
+**Signed scan records**
+
+- `signing: {private_key_file}` writes `manifest.json` (SHA-256 of every output, version, config and
+  policy hashes, key fingerprint) and an Ed25519 signature next to the outputs. `serve` signs each rescan
+  and serves `/manifest.json` and `/manifest.json.sig`.
+- `keycensus keygen` creates the key pair (never overwrites); `keycensus verify OUT --public-key ...`
+  checks the signature and every file, and exits 1 on any difference.
+
+**Least-privilege kits** in `deploy/`: an AWS member role (CloudFormation, for a StackSet) and scanner
+policy, an Azure custom role, a GCP custom role, a Vault policy and an AD account checklist; summarized
+in the new [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
+
+**Signed releases**: the publish job signs the GHCR image with Sigstore (keyless), attaches an SPDX SBOM
+attestation and SLSA build provenance. SECURITY.md has the `cosign verify` and `gh attestation verify`
+commands.
+
+**Helm**: a generated serve token Secret, liveness on `/livez`, every `config` block now reaches the
+config file (it used to pass only `policy` and `sources`), and `appVersion` corrected to 0.8.0.
+
 ## 0.7.0 — 2026-11-03
 
 **Hybrid key exchange, network discovery and cloud-wide discovery.** Three roadmap items.

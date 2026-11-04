@@ -23,6 +23,9 @@ USER keycensus
 
 # SoftHSM keeps its tokens here; make it writable for the demo seed.
 ENV SOFTHSM2_CONF=/app/demo/softhsm2.conf
+# A container has to listen on every interface to be reachable. `serve` then refuses to start
+# without a token ($KEYCENSUS_SERVE_TOKEN or serve.auth.tokens) unless told otherwise.
+ENV KEYCENSUS_LISTEN=0.0.0.0
 
 EXPOSE 9742
 ENTRYPOINT ["/app/demo/entrypoint.sh"]

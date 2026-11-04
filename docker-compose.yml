@@ -39,6 +39,9 @@ services:
       KEYCENSUS_DEMO: "1"                    # seed SoftHSM + KMS + certs on start
       KEYCENSUS_CONFIG: /config/keycensus.yml
       KEYCENSUS_INTERVAL: ${KEYCENSUS_INTERVAL:-2m}
+      # Demo only: serve the report without a token. The port below is published on 127.0.0.1,
+      # so nothing beyond this machine can reach it. Never set this on a real deployment.
+      KEYCENSUS_ALLOW_UNAUTHENTICATED: "1"
       HSM_PIN: ${HSM_PIN:-1234}
       VAULT_TOKEN: ${VAULT_TOKEN:-root}
       VOLTAGE_PASSWORD: ${VOLTAGE_PASSWORD:-changeme}
@@ -53,7 +56,7 @@ services:
       - ./config/keycensus.demo.yml:/config/keycensus.yml:ro
       - keycensus-out:/out
     ports:
-      - "${KEYCENSUS_PORT:-9742}:9742"
+      - "127.0.0.1:${KEYCENSUS_PORT:-9742}:9742"
     depends_on:
       vault-seed:
         condition: service_completed_successfully

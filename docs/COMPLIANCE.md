@@ -18,7 +18,10 @@ standard. Not QSA or legal advice.
 | **12.3.3** | Inventory of cipher suites and protocols in use, reviewed ≥ annually, with a plan for deprecated ones | The CBOM + `quantum-*`, `tls-*`, `ssh-*` and key exchange findings; the `network` collector finds the endpoints nobody listed; run it on a schedule and keep the outputs |
 
 **How to present it to an assessor:** a dated `cbom.json` + `report.html` from a scheduled scan,
-the policy YAML (your cryptoperiods and thresholds), and the ticket trail for the findings.
+the policy YAML (your cryptoperiods and thresholds), and the ticket trail for the findings. With
+`signing:` on, hand over the scan folder and the public key: `keycensus verify out --public-key ...`
+shows nothing was edited after the scan. With `audit:` on, the audit log shows every scan that ran,
+when the config or policy changed, and who read the inventory.
 `keycensus scan --fail-on high` in a pipeline gives you the "we would have caught it" evidence.
 
 ## NIST

@@ -60,6 +60,16 @@ handshake is never finished. See [COLLECTORS.md](COLLECTORS.md#key-exchange-clas
 If a TLS-inspecting proxy sits between keycensus and the server, the proxy answers instead, so run it from
 inside the network you are measuring.
 
+**How do Grafana, auditors or a dashboard get at the report now that it needs a token?**
+Give each its own named token under `serve.auth.tokens`, and send it as `Authorization: Bearer ...`.
+A browser asks for a user name and password: any user name, the token as the password. `/metrics`
+stays public, so Prometheus needs nothing. The audit log records which token read what.
+
+**How does an assessor check that a CBOM was not edited after the scan?**
+Turn on `signing:`. Each scan writes `manifest.json` (a SHA-256 per output file) and
+`manifest.json.sig`. The assessor runs `keycensus verify <folder> --public-key keycensus-signing.pub.pem`;
+any changed byte, missing file or other key fails it.
+
 **Can I use it without Docker?**
 `pip install "keycensus[all]"` and `keycensus scan -c config.yml`. Docker is only for the demo
 stack and the container image. The PKCS#11 extra needs the vendor library on the host.
