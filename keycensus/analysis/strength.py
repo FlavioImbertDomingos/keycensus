@@ -6,11 +6,13 @@ Two questions every inventory has to answer per asset:
    the 90s. RSA-2048 ≈ 112 bits, P-256 = 128 bits, AES-256 = 256 bits.
    Sources: NIST SP 800-57 Part 1 Rev. 5, Table 2.
 
-2. **Quantum readiness** -- since NIST IR 8547 (2024) set the clock:
+2. **Quantum readiness** -- NIST IR 8547 (final, 27 October 2026) sets the clock:
    quantum-vulnerable public-key algorithms (RSA, ECDSA, ECDH, DH, DSA, EdDSA)
-   are *deprecated after 2030* and *disallowed after 2035*. Symmetric ciphers
-   and hashes only lose ~half their bits to Grover's algorithm, so AES-256 and
-   SHA-256 are fine; AES-128 is "acceptable but plan to move".
+   are *deprecated after 2030* and *disallowed after 2035*, at every security
+   strength (the 2024 draft deprecated only the 112-bit ones in 2030). NIST does
+   not expect to move off AES-128/192/256 or SHA-2, because Grover's algorithm
+   costs them far less than Shor's costs RSA and ECC. keycensus still marks
+   AES-128/192 "quantum-reduced" as a margin note, not as a NIST requirement.
 
 `nist_quantum_level` follows the NIST PQC evaluation levels used by CycloneDX:
 1 = at least as hard as AES-128 key search, 2 = SHA-256 collision,
@@ -107,7 +109,10 @@ def assess(asset: CryptoAsset) -> Strength:
         )
     if alg in PQC:
         level = {512: 1, 768: 3, 1024: 5, 44: 2, 65: 3, 87: 5}.get(size or 0)
-        return Strength(None, QUANTUM_SAFE, level, "NIST FIPS 203/204/205 post-quantum algorithm.")
+        note = "NIST FIPS 203/204/205 post-quantum algorithm."
+        if alg == ALG_ML_KEM and size == 512:
+            note += " NIST IR 8547 recommends ML-KEM-768 as the default; 512 is for constrained cases."
+        return Strength(None, QUANTUM_SAFE, level, note)
     if alg == ALG_AES:
         if size == 256:
             return Strength(
@@ -117,14 +122,14 @@ def assess(asset: CryptoAsset) -> Strength:
                 "AES-256: Grover reduces to ~128-bit effective; considered quantum-safe.",
             )
         if size == 192:
-            return Strength(192, QUANTUM_REDUCED, 3, "AES-192: acceptable; prefer AES-256 for long-lived data.")
+            return Strength(192, QUANTUM_REDUCED, 3, "AES-192: NIST keeps it (category 3); AES-256 adds margin.")
         if size == 128:
             return Strength(
                 128,
                 QUANTUM_REDUCED,
                 1,
-                "AES-128: ~64-bit effective against Grover; acceptable today, plan to move to AES-256 "
-                "for data that must stay secret past 2035.",
+                "AES-128: NIST IR 8547 keeps it (category 1); AES-256 adds margin for data that must "
+                "stay secret for decades.",
             )
         return Strength(size, QUANTUM_UNKNOWN, None, "AES with unusual key size.")
     if alg == ALG_CHACHA20:

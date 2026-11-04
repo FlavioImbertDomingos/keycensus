@@ -33,7 +33,7 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 |---|---|---|---|
 | `weak-algorithm` | algorithm ∈ {DES, 3DES, RC4} | high | 3.5.1, 3.7.5, SP 800-131A |
 | `weak-key-size` | RSA/DSA/DH < 2048, ECC < 224, AES/HMAC < 128 | high | 3.7.1, 3.5.1 |
-| `deprecated-signature-hash` | certificate signed with MD5/SHA-1 | high | 4.2.1, 3.7.5 |
+| `deprecated-signature-hash` | certificate signed with MD5/SHA-1 | high | 4.2.1, 3.7.5, SP 800-131A, IR 8547 |
 | `rotation-overdue` | active key older than its cryptoperiod | medium | 3.7.4, SP 800-57 |
 | `rotation-disabled` | source supports auto-rotation and it's off | low | 3.7.4 |
 | `no-creation-date` | key has no created/rotated timestamp | info | 12.3.3, 3.6.1.1 |
@@ -45,9 +45,9 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 | `key-exportable` | extractable / exportable / imported material | medium | 3.7.3, 3.6.1 |
 | `key-software-backed` | `hardware_backed: false` with a protective purpose | low | 3.6.1, FIPS 140-3 |
 | `key-not-active` | state is disabled / pending deletion / destroyed | info | 3.7.5 |
-| `quantum-vulnerable-encryption` | RSA/EC/DH **key** used to encrypt/wrap/derive | medium | IR 8547, 12.3.3 |
-| `quantum-vulnerable` | RSA/EC/DH/Ed used for signatures, or any certificate | low | IR 8547, 12.3.3 |
-| `quantum-reduced` | AES-128/192, short HMAC | info | IR 8547 |
+| `quantum-vulnerable-encryption` | RSA/EC/DH **key** used to encrypt/wrap/derive | medium | IR 8547, EO 14412, 12.3.3 |
+| `quantum-vulnerable` | RSA/EC/DH/Ed used for signatures, or any certificate | low | IR 8547, EO 14412, 12.3.3 |
+| `quantum-reduced` | AES-128/192, short HMAC (margin note; NIST keeps AES-128/192) | info | none |
 | `tls-weak-protocol` | negotiates or accepts SSLv3/TLS 1.0/1.1 | high | 4.2.1, 12.3.3 |
 | `tls-weak-cipher` | RC4, 3DES, NULL, EXPORT, anon, MD5, RC2, IDEA | high | 4.2.1, 12.3.3 |
 | `tls-no-forward-secrecy` | non-(EC)DHE suite | low | 4.2.1 |
@@ -67,12 +67,20 @@ the documented cryptoperiod PCI DSS 3.7.4 asks for.
 
 ### The quantum rules, briefly
 
-NIST IR 8547 (2024): RSA, ECDSA, ECDH, DH, DSA and EdDSA are **deprecated after 2030 and
-disallowed after 2035**. Keys that *encrypt* are worse than keys that *sign*: ciphertext captured
-today can be decrypted later, signatures cannot be forged retroactively. That is why
-`quantum-vulnerable-encryption` is medium and `quantum-vulnerable` is low. Symmetric keys and
-hashes only lose ~half their strength (Grover), so AES-256 / SHA-256 are fine; AES-128 is flagged
-info as "plan to move".
+NIST IR 8547 (final, 27 October 2026): RSA, ECDSA, ECDH, DH, DSA and EdDSA are **deprecated after
+2030 and disallowed after 2035**, at every security strength. The 2024 draft deprecated only the
+112-bit sizes in 2030; RSA-3072 and P-256 now get the same date as RSA-2048. Executive Order 14412
+puts federal high-impact systems on post-quantum key establishment by the end of 2030 and signatures
+by the end of 2031.
+
+Keys that *encrypt* are worse than keys that *sign*: ciphertext captured today can be decrypted
+later, signatures cannot be forged retroactively. That is why `quantum-vulnerable-encryption` is
+medium and `quantum-vulnerable` is low.
+
+NIST does not expect to move off AES-128/192/256 or SHA-2. keycensus still flags AES-128 and AES-192
+as `quantum-reduced` (info) as a margin note for data that must stay secret for decades, and the
+finding cites no control. Disable it if you follow NIST's reading. Dates and sources:
+[PQC-TIMELINE.md](PQC-TIMELINE.md).
 
 ## Examples
 

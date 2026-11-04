@@ -76,3 +76,10 @@ EOF
 
 The schema files under `tests/fixtures/` are copies of the official CycloneDX schemas
 (Apache-2.0).
+
+## Federal CBOM guidance
+
+US Executive Order 14412 (June 2026) directs NIST and CISA to write guidance for a cryptographic bill
+of materials. It is not published yet. keycensus emits CycloneDX 1.6 `cryptographic-asset`
+components, the format most CBOM tooling reads today; when the minimum elements are out, this page
+will map each one to a field and list any gaps. See [PQC-TIMELINE.md](PQC-TIMELINE.md).

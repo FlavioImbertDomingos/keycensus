@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.1 — 2026-11-03
+
+**NIST IR 8547 is final.** NIST published the final *Transition to Post-Quantum Cryptography
+Standards* on 27 October 2026. This release brings the control text, finding text and docs in line
+with it and with Executive Order 14412. No rule fires differently; findings cite different controls.
+
+- `NIST-IR-8547` now describes the final report: RSA, ECDSA, EdDSA, DH and ECDH deprecated after
+  2030 and disallowed after 2035 at every security strength (the 2024 draft deprecated only the
+  112-bit sizes in 2030), and SHA-1 disallowed in FIPS 140 modules after 2030.
+- New control `US-EO-14412`: federal high value assets and high-impact systems move to post-quantum
+  key establishment by 31 Dec 2030 and signatures by 31 Dec 2031. `quantum-vulnerable-encryption`
+  and `quantum-vulnerable` cite it.
+- `quantum-reduced` (AES-128/192, short HMAC) no longer cites IR 8547, because the final report keeps
+  AES-128/192/256 and SHA-2. The finding stays as an info-level margin note with no control; turn it
+  off with `quantum-reduced: {enabled: false}` if you follow NIST's reading.
+- `deprecated-signature-hash` also cites IR 8547.
+- `quantum-vulnerable-encryption` remediation names ML-KEM-768, NIST's recommended default, and
+  calls hybrids a bridge rather than the end state. ML-KEM-512 assets note the 768 default.
+- New [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md): FIPS 203/204/205 (Aug 2024), PCI DSS 12.3.3
+  (Mar 2025), the G7 Cyber Expert Group roadmap (Jan 2026), EO 14412 (Jun 2026), the DigiCert
+  Quantum Readiness Outlook (Jul 2026) and IR 8547 final (Oct 2026), each with its source and what
+  keycensus gives you for it. COMPLIANCE.md gains US federal and financial-sector sections; POLICY.md,
+  CBOM.md and the README are updated.
+- Roadmap: hybrid key exchange in the `tls` collector, and a mapping to the NIST / CISA CBOM minimum
+  elements once EO 14412's guidance is published.
+
 ## 0.6.0 — 2026-10-16
 
 **Microsoft AD CS.** Most Windows estates run their internal PKI on Active Directory Certificate

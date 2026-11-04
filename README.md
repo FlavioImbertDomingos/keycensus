@@ -39,8 +39,10 @@ and whether it's the paperclip kind.* Then it hands you two things:
 
 Why now? Two reasons. **PCI DSS 4.0** now *requires* the list (requirement 12.3.3, mandatory since
 March 2025). And **quantum computers** will eventually open a whole category of today's locks
-(RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
-You can't replace what you haven't counted.
+(RSA and elliptic-curve). NIST's final transition plan (IR 8547, October 2026) says those locks are
+deprecated after 2030 and not allowed after 2035, and a US executive order gives federal systems until
+2030 and 2031. You can't replace what you haven't counted. The dates and sources are in
+[docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md).
 
 ---
 
@@ -194,9 +196,9 @@ never reads key values, only public attributes. See [SECURITY.md](SECURITY.md).
 | Certificate expired / expiring (7d, 30d) | critical / high / medium | PCI 4.2.1 |
 | Key exportable / extractable | medium | PCI 3.7.3, 3.6.1 |
 | Key in software, not an HSM | low | PCI 3.6.1; FIPS 140-3 |
-| Quantum-vulnerable **encryption** key (harvest-now-decrypt-later) | medium | NIST IR 8547; PCI 12.3.3 |
-| Quantum-vulnerable signing key | low | NIST IR 8547; PCI 12.3.3 |
-| AES-128 (reduced quantum margin) | info | NIST IR 8547 |
+| Quantum-vulnerable **encryption** key (harvest-now-decrypt-later) | medium | NIST IR 8547; EO 14412; PCI 12.3.3 |
+| Quantum-vulnerable signing key | low | NIST IR 8547; EO 14412; PCI 12.3.3 |
+| AES-128 / AES-192 (margin note; NIST keeps both) | info | none |
 | TLS < 1.2 accepted, weak cipher suite, no forward secrecy | high / high / low | PCI 4.2.1, 12.3.3 |
 | No creation date (cryptoperiod unknowable) | info | PCI 12.3.3, 3.6.1.1 |
 | AD CS CA publishes a template that allows weak keys | medium | PCI 3.7.1; NIST 800-131A |
@@ -329,6 +331,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/POLICY.md](docs/POLICY.md) — every rule, how it decides, how to tune it
 - [docs/CBOM.md](docs/CBOM.md) — how assets map to CycloneDX, and how to load the CBOM elsewhere
 - [docs/COMPLIANCE.md](docs/COMPLIANCE.md) — the PCI DSS / NIST controls and what evidence keycensus gives you
+- [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) — the post-quantum dates (FIPS 203-205, PCI 12.3.3, G7, EO 14412, IR 8547 final) and what keycensus gives you for each
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design, data model, adding collectors and rules
 - [docs/FAQ.md](docs/FAQ.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
@@ -368,8 +371,50 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
 - [x] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking *(0.5.0)*
 - [x] Microsoft AD CS: CA certificates and templates from Active Directory, issued certificates from `certutil` exports *(0.6.0, mock-verified)*
+
+Next, in order. The first three are the next three releases.
+
+### 1. Safe to leave running
+
+- [ ] `serve` binds to `127.0.0.1` by default, requires a token (OIDC for enterprise) for the report and CBOM, and supports TLS; `/metrics` can stay open
+- [ ] Signed releases: cosign signatures, build provenance and an SBOM for the keycensus image and packages
+- [ ] Least-privilege kits: ready-made IAM policies, Azure role definitions, a Vault policy and an AD service-account checklist
+- [ ] Credentials from Vault, AWS Secrets Manager or Azure Key Vault, not only environment variables and files
+- [ ] Audit log as JSON lines, each entry carrying the previous entry's hash: every scan (sources, credential identity, results), every report or CBOM read in `serve`, every config or policy change, every webhook sent
+- [ ] Signed scan records: each CBOM and report hashed and signed, so an assessor can verify it existed on that date unchanged (PCI DSS 12.3.3 evidence)
+
+### 2. Easy to start
+
+- [ ] `brew install keycensus`, `pipx install keycensus` and single-file binaries on the releases page
+- [ ] `keycensus init`: asks which sources you run, tests each credential, writes the config and runs the first scan
+- [ ] `keycensus doctor`: for each source, what it can reach, which permission is missing and the policy that fixes it
+- [ ] Executive summary at the top of the report: share of quantum-vulnerable keys and what is due before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md)
+
+### 3. Discovery: find what nobody listed
+
+- [ ] Hybrid key exchange (e.g. X25519 + ML-KEM-768) reported by the `tls` collector and classified as allowed but temporary, per NIST IR 8547
+- [ ] Network discovery: scan a CIDR range for TLS, SSH and LDAPS endpoints
+- [ ] Cloud auto-discovery across every AWS account, Azure subscription and GCP project in an organization
+- [ ] Certificate Transparency logs: every public certificate issued for your domains
+- [ ] Kubernetes secrets and cert-manager, JKS and PKCS#12 keystores, SSH host and user keys
+- [ ] Code scanning for hard-coded keys and cryptographic API use
+
+### 4. Teams and scale
+
+- [ ] Agent and server: one agent per network zone sends signed results to a central server
+- [ ] Web UI with roles: findings with owners, due dates and expiring risk exceptions (PCI DSS 12.3.3's plan for weakened algorithms, as a workflow)
+- [ ] Jira and ServiceNow tickets per finding; GRC-ready export
+- [ ] Migration plan per quantum-vulnerable key: the deadline that applies (IR 8547, EO 14412 for federal scope), the replacement algorithm and the blast radius from SBOM linking
+
+### Validation and standards
+
 - [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
 - [ ] AD CS validation against a live forest and CA database export
+- [ ] Map the CBOM to the NIST / CISA minimum elements once EO 14412's guidance is published
+
+Language: keycensus stays in Python. It spends its time waiting on HSMs, APIs and networks, so a rewrite
+would cost months of features for little speed. If the agent in item 4 needs a small static binary, that
+one component may be written in Go.
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.

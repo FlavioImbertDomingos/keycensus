@@ -27,9 +27,21 @@ the policy YAML (your cryptoperiods and thresholds), and the ticket trail for th
 |---|---|---|
 | SP 800-57 Part 1 Rev. 5 | Security strengths (Table 2) and cryptoperiod guidance (Table 1) | `classicalSecurityLevel` in the CBOM; default cryptoperiods |
 | SP 800-131A Rev. 2 | Algorithm/key-length transitions: 3DES disallowed after 2023, SHA-1 signatures disallowed, < 112-bit keys disallowed | `weak-algorithm`, `weak-key-size`, `deprecated-signature-hash`, `adcs-template-weak-key-size` |
-| IR 8547 (2024) | PQC transition: quantum-vulnerable algorithms deprecated 2030, disallowed 2035 | `quantum-vulnerable(-encryption)`, `quantum-reduced`; `nistQuantumSecurityLevel` in the CBOM; the PQC readiness bar in the report |
+| IR 8547 (final, Oct 2026) | PQC transition: RSA, ECDSA, EdDSA, DH and ECDH deprecated after 2030 and disallowed after 2035, at every security strength; SHA-1 disallowed in FIPS modules after 2030; AES and SHA-2 stay; ML-KEM-768 is the default; hybrids allowed but temporary | `quantum-vulnerable(-encryption)`, `deprecated-signature-hash`; `nistQuantumSecurityLevel` in the CBOM; the PQC readiness bar in the report. See [PQC-TIMELINE.md](PQC-TIMELINE.md) |
 | FIPS 140-3 | Validated modules | `fipsValidated` / `certificationLevel` where the source tells us (AWS KMS, or your `fips_validated: true` on a PKCS#11 source) |
 | FIPS 203 / 204 / 205 | ML-KEM, ML-DSA, SLH-DSA | Recognised as `quantum-safe`; Vault `ml-dsa-*` and KMS `ML_DSA_*` specs are mapped |
+
+## US federal
+
+| Document | Relevance | keycensus |
+|---|---|---|
+| Executive Order 14412 (22 Jun 2026) | High value assets and high-impact systems: post-quantum key establishment by 31 Dec 2030, post-quantum signatures by 31 Dec 2031; directs NIST and CISA to write CBOM guidance | `quantum-vulnerable-encryption` (the 2030 deadline) and `quantum-vulnerable` (2031) cite `US-EO-14412`. Tag federal-scope sources (`tags: {fisma: high}`) and filter, because the order does not reach every system |
+
+## Financial sector guidance
+
+| Document | Relevance | keycensus |
+|---|---|---|
+| G7 Cyber Expert Group roadmap (Jan 2026) | Non-binding. Critical systems in 2030 to 2032, 2035 as a general target; starts with an inventory of cryptographic assets, protocols and third-party dependencies | The CBOM is that inventory; `used_by` and SBOM linking show the dependencies. No finding cites it, because it sets no requirement |
 
 ## What keycensus does *not* do
 

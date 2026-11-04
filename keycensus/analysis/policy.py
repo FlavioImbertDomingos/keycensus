@@ -136,7 +136,8 @@ def rule_deprecated_signature_hash(p: Policy, a: CryptoAsset):
                  f"Certificate signed with {a.signature_hash}",
                  f"{a.name} is signed with {a.signature_algorithm}; {a.signature_hash} collisions are practical.",
                  "Re-issue the certificate with SHA-256 or stronger.",
-                 ["PCI-DSS-4.0:4.2.1", "PCI-DSS-4.0:3.7.5", "NIST-SP-800-131A"], default_sev="high")  # fmt: skip
+                 ["PCI-DSS-4.0:4.2.1", "PCI-DSS-4.0:3.7.5", "NIST-SP-800-131A", "NIST-IR-8547"],
+                 default_sev="high")  # fmt: skip
 
 
 def rule_rotation_overdue(p: Policy, a: CryptoAsset):
@@ -250,21 +251,23 @@ def rule_quantum(p: Policy, a: CryptoAsset):
                      f"{a.display_algorithm} protects confidentiality and is quantum-vulnerable",
                      f"{a.name}: data encrypted or wrapped under this key can be harvested now and "
                      f"decrypted once a CRQC exists. {s.note}",
-                     "Prioritise for hybrid / ML-KEM migration; shorten the lifetime of data protected by it.",
-                     ["NIST-IR-8547", "PCI-DSS-4.0:12.3.3"])  # fmt: skip
+                     "Prioritise for ML-KEM migration (ML-KEM-768 is NIST's default; a hybrid is an accepted "
+                     "bridge, not the end state); shorten the lifetime of data protected by it.",
+                     ["NIST-IR-8547", "US-EO-14412", "PCI-DSS-4.0:12.3.3"])  # fmt: skip
         else:
             yield _f(p, "quantum-vulnerable", a,
                      f"{a.display_algorithm} is quantum-vulnerable",
                      f"{a.name}: {s.note}",
                      "Add to the PQC migration plan required by PCI DSS 12.3.3; "
                      "target ML-DSA / SLH-DSA for signatures.",
-                     ["NIST-IR-8547", "PCI-DSS-4.0:12.3.3"], default_sev="low")  # fmt: skip
+                     ["NIST-IR-8547", "US-EO-14412", "PCI-DSS-4.0:12.3.3"], default_sev="low")  # fmt: skip
     elif s.quantum_class == strength.QUANTUM_REDUCED:
+        # Not a NIST requirement: IR 8547 keeps AES-128/192. A margin note for long-lived data, so no control.
         yield _f(p, "quantum-reduced", a,
                  f"{a.display_algorithm}: reduced strength against quantum attack",
                  f"{a.name}: {s.note}",
-                 "Prefer 256-bit symmetric keys for data that must stay confidential beyond 2035.",
-                 ["NIST-IR-8547"], default_sev="info")  # fmt: skip
+                 "No action required by NIST. Prefer 256-bit keys for data that must stay confidential for decades.",
+                 [], default_sev="info")  # fmt: skip
 
 
 def rule_unknown_algorithm(p: Policy, a: CryptoAsset):

@@ -124,3 +124,47 @@ def test_no_creation_date_is_info():
     a = make_asset(algorithm="AES", key_size=256)
     f = [f for f in evaluate([a], Policy.default()) if f.rule_id == "no-creation-date"]
     assert f and f[0].severity == "info" and "PCI-DSS-4.0:12.3.3" in f[0].controls
+
+
+def findings_for(asset):
+    return {f.rule_id: f for f in evaluate([asset], Policy.default())}
+
+
+def test_quantum_findings_map_to_ir8547_final_and_eo14412():
+    # IR 8547 (final, Oct 2026) deprecates RSA/ECC at every strength, so RSA-3072 is flagged like RSA-2048.
+    for size in (2048, 3072, 4096):
+        f = findings_for(make_asset(algorithm="RSA", key_size=size, purposes=["sign"], key_type="private-key"))
+        assert {"NIST-IR-8547", "US-EO-14412"} <= set(f["quantum-vulnerable"].controls)
+    enc = findings_for(make_asset(algorithm="EC", curve="P-384", purposes=["derive"], key_type="private-key"))
+    assert {"NIST-IR-8547", "US-EO-14412"} <= set(enc["quantum-vulnerable-encryption"].controls)
+    assert "ML-KEM-768" in enc["quantum-vulnerable-encryption"].remediation
+
+
+def test_aes128_is_a_margin_note_not_a_nist_requirement():
+    f = findings_for(make_asset(algorithm="AES", key_size=128, purposes=["encrypt"]))["quantum-reduced"]
+    assert f.severity == "info" and f.controls == []
+    assert "keeps it" in strength.assess(make_asset(algorithm="AES", key_size=128)).note
+
+
+def test_sha1_signature_maps_to_ir8547():
+    cert = make_asset(kind=KIND_CERTIFICATE, algorithm="RSA", key_size=2048, key_type="public-key",
+                      signature_hash="SHA1", signature_algorithm="sha1WithRSAEncryption")  # fmt: skip
+    assert "NIST-IR-8547" in findings_for(cert)["deprecated-signature-hash"].controls
+
+
+def test_mlkem512_note_points_at_768_default():
+    assert "ML-KEM-768" in strength.assess(make_asset(algorithm="ML-KEM", key_size=512)).note
+    assert "ML-KEM-768" not in strength.assess(make_asset(algorithm="ML-KEM", key_size=768)).note
+
+
+def test_every_control_a_rule_cites_is_in_the_catalogue():
+    from keycensus.analysis.controls import CONTROLS
+
+    assets = [
+        make_asset(algorithm="RSA", key_size=1024, purposes=["decrypt"], key_type="private-key", exportable=True,
+                   hardware_backed=False, rotation_enabled=False, state="active"),
+        make_asset(algorithm="AES", key_size=128, purposes=["encrypt"]),
+        make_asset(kind=KIND_CERTIFICATE, algorithm="EC", curve="P-256", key_type="public-key", signature_hash="SHA1"),
+    ]  # fmt: skip
+    cited = {c for f in evaluate(assets, Policy.default()) for c in f.controls}
+    assert cited and cited <= set(CONTROLS)
