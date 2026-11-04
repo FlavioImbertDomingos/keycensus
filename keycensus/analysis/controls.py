@@ -65,9 +65,17 @@ CONTROLS: dict[str, dict[str, str]] = {
         "why": "3DES disallowed after 2023; SHA-1 signatures disallowed; RSA/DSA/DH < 2048 disallowed.",
     },
     "NIST-IR-8547": {
-        "framework": "NIST IR 8547",
+        "framework": "NIST IR 8547 (final, October 2026)",
         "title": "Transition to Post-Quantum Cryptography Standards",
-        "why": "Quantum-vulnerable algorithms deprecated after 2030 and disallowed after 2035.",
+        "why": "RSA, ECDSA, EdDSA, DH and ECDH at every security strength: deprecated after 2030, "
+        "disallowed after 2035. SHA-1 disallowed in FIPS 140 modules after 2030.",
+    },
+    # ---- US federal ----------------------------------------------------
+    "US-EO-14412": {
+        "framework": "US Executive Order 14412 (June 2026)",
+        "title": "Securing the Nation Against Advanced Cryptographic Attacks",
+        "why": "Federal high value assets and high-impact systems: post-quantum key establishment by "
+        "31 Dec 2030, post-quantum signatures by 31 Dec 2031.",
     },
     "NIST-FIPS-140-3": {
         "framework": "FIPS 140-3",

@@ -4,7 +4,7 @@
 # Every rule can be turned off with `enabled: false` or re-graded with `severity:`.
 #
 # Defaults are conservative readings of PCI DSS v4.0.1 "strong cryptography",
-# NIST SP 800-57 cryptoperiods and NIST SP 800-131A / IR 8547 transitions.
+# NIST SP 800-57 cryptoperiods and NIST SP 800-131A / IR 8547 (final, Oct 2026) transitions.
 
 name: default
 
@@ -46,7 +46,7 @@ rules:
   key-not-active:            {enabled: true, severity: info}
   quantum-vulnerable:        {enabled: true, severity: low}
   quantum-vulnerable-encryption: {enabled: true, severity: medium}  # harvest-now-decrypt-later
-  quantum-reduced:           {enabled: true, severity: info}
+  quantum-reduced:           {enabled: true, severity: info}   # margin note: NIST keeps AES-128/192
   tls-weak-protocol:         {enabled: true, severity: high}
   tls-weak-cipher:           {enabled: true, severity: high}
   tls-no-forward-secrecy:    {enabled: true, severity: low}

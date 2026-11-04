@@ -39,8 +39,10 @@ and whether it's the paperclip kind.* Then it hands you two things:
 
 Why now? Two reasons. **PCI DSS 4.0** now *requires* the list (requirement 12.3.3, mandatory since
 March 2025). And **quantum computers** will eventually open a whole category of today's locks
-(RSA and elliptic-curve), so NIST says: know which ones you have by 2030, replace them by 2035.
-You can't replace what you haven't counted.
+(RSA and elliptic-curve). NIST's final transition plan (IR 8547, October 2026) says those locks are
+deprecated after 2030 and not allowed after 2035, and a US executive order gives federal systems until
+2030 and 2031. You can't replace what you haven't counted. The dates and sources are in
+[docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md).
 
 ---
 
@@ -194,9 +196,9 @@ never reads key values, only public attributes. See [SECURITY.md](SECURITY.md).
 | Certificate expired / expiring (7d, 30d) | critical / high / medium | PCI 4.2.1 |
 | Key exportable / extractable | medium | PCI 3.7.3, 3.6.1 |
 | Key in software, not an HSM | low | PCI 3.6.1; FIPS 140-3 |
-| Quantum-vulnerable **encryption** key (harvest-now-decrypt-later) | medium | NIST IR 8547; PCI 12.3.3 |
-| Quantum-vulnerable signing key | low | NIST IR 8547; PCI 12.3.3 |
-| AES-128 (reduced quantum margin) | info | NIST IR 8547 |
+| Quantum-vulnerable **encryption** key (harvest-now-decrypt-later) | medium | NIST IR 8547; EO 14412; PCI 12.3.3 |
+| Quantum-vulnerable signing key | low | NIST IR 8547; EO 14412; PCI 12.3.3 |
+| AES-128 / AES-192 (margin note; NIST keeps both) | info | none |
 | TLS < 1.2 accepted, weak cipher suite, no forward secrecy | high / high / low | PCI 4.2.1, 12.3.3 |
 | No creation date (cryptoperiod unknowable) | info | PCI 12.3.3, 3.6.1.1 |
 | AD CS CA publishes a template that allows weak keys | medium | PCI 3.7.1; NIST 800-131A |
@@ -329,6 +331,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/POLICY.md](docs/POLICY.md) — every rule, how it decides, how to tune it
 - [docs/CBOM.md](docs/CBOM.md) — how assets map to CycloneDX, and how to load the CBOM elsewhere
 - [docs/COMPLIANCE.md](docs/COMPLIANCE.md) — the PCI DSS / NIST controls and what evidence keycensus gives you
+- [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) — the post-quantum dates (FIPS 203-205, PCI 12.3.3, G7, EO 14412, IR 8547 final) and what keycensus gives you for each
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design, data model, adding collectors and rules
 - [docs/FAQ.md](docs/FAQ.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
@@ -370,6 +373,8 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [x] Microsoft AD CS: CA certificates and templates from Active Directory, issued certificates from `certutil` exports *(0.6.0, mock-verified)*
 - [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
 - [ ] AD CS validation against a live forest and CA database export
+- [ ] Hybrid key exchange (e.g. X25519 + ML-KEM-768) reported by the `tls` collector and classified as allowed but temporary, per NIST IR 8547
+- [ ] Map the CBOM to the NIST / CISA minimum elements once EO 14412's guidance is published
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.
