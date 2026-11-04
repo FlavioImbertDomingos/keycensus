@@ -4,6 +4,8 @@
 Yes — it only reads. PKCS#11: `C_FindObjects` + `C_GetAttributeValue` on public attributes.
 Vault: `list` + `read` on key metadata. AWS: `List*`/`Describe*`/`Get*RotationStatus`. Use
 read-only roles/policies (examples in [COLLECTORS.md](COLLECTORS.md)) and it *cannot* change anything.
+Endpoints are probed, not logged into: a TLS handshake plus one unfinished ClientHello per probe, and
+for SSH the banner and algorithm list the server sends before authentication.
 
 **Does it ever see key material?**
 No. It never reads `CKA_VALUE`, never exports, never calls `GetPublicKey` on KMS, never reads Vault

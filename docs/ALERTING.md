@@ -49,7 +49,7 @@ keycensus changes --kinds        # the whole vocabulary and its default urgency
 | `source-removed` | A source left the config; its assets are no longer watched by anything. |
 | `finding-new-critical`, `finding-new-high` | A new serious finding since the last scan. |
 
-Everything else is `digest` (new keys, consumer changes, certificate replacement, expiry moving in, application links) or `ignore` (rotation, strengthening, resolved findings, metadata).
+Everything else is `digest` (new keys, consumer changes, certificate replacement, expiry moving in, application links) or `ignore` (rotation, strengthening, an endpoint gaining a post-quantum key exchange, resolved findings, metadata). `keycensus changes --kinds` prints all 32 kinds; 13 page by default.
 
 ### Re-mapping it for your estate
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "keycensus"
 version = "0.7.0"
-description = "Cryptographic inventory (CBOM) and key-hygiene scanner for HSMs, KMSs, Vault, AD CS, certificates and TLS endpoints"
+description = "Cryptographic inventory (CBOM) and key-hygiene scanner for HSMs, KMSs, Vault, AD CS, certificates, TLS and SSH endpoints, with network and cloud discovery"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"

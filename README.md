@@ -83,7 +83,7 @@ Nothing is faked in the *code path* — only the *backends* are stand-ins:
 | `fake-aws` | moto — an AWS API mock so faithful that real `boto3` doesn't notice | rotation disabled, disabled key, quantum-vulnerable signing keys |
 | `voltage` | A mock inventory export in the canonical Voltage shape | rotation overdue (800 days), 3DES, software-only keys |
 | `app-certs` | A folder of deliberately imperfect PEM files | expired cert, expiring-in-10-days, RSA-1024, orphan private key |
-| `edges` | The mock's HTTPS port, scanned like any TLS endpoint | self-signed, expiring cert |
+| `edges` | The mock's HTTPS port, scanned like any TLS endpoint | self-signed, expiring cert, classical key exchange (no X25519MLKEM768) |
 | *applications* | Two CycloneDX SBOMs (`demo/sboms/`) plus a declared app, linked to the keys above via selectors, KMS grants and Vault policies | the Applications table, `unlinked-asset` findings for orphan keys |
 
 ### What the output looks like
@@ -99,7 +99,7 @@ sources:  6/6 ok
   - voltage (voltage): 7 assets
   - app-certs (pem): 8 assets
   - edges (tls): 2 assets
-findings: critical=1, high=5, medium=14, low=25, info=19
+findings: critical=1, high=5, medium=15, low=25, info=19
 
   [critical] legacy.batch — Certificate has EXPIRED
   [high    ] old.reporting — RSA-1024 is below the strong-cryptography minimum

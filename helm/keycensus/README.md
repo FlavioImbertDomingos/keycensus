@@ -55,6 +55,11 @@ serviceAccount:
   `extraVolumeMounts`. Network HSMs must be reachable from the cluster (NTLS 1792 for Luna, 9004 for nShield).
 * **Cloud collectors** use workload identity when `auth: default`: annotate the service account for AKS / GKE / EKS
   and grant the read-only roles listed in `docs/COLLECTORS.md`.
+* **`network` sources scan from the pod.** The pod needs egress to the ranges and ports you list; a
+  NetworkPolicy that only allows the sources' APIs will make every port look closed. Tell whoever watches
+  your IDS before the CronJob's first run.
+* **Cloud discovery** (`organization: true`, `discover: true`) runs with the same workload identity; give it
+  the organization-wide read roles listed in `docs/COLLECTORS.md`, not an administrator role.
 * **Secrets** never go in values. `existingSecret` is mounted with `envFrom`; the keys are the env var names your
   sources reference (`token_env`, `pin_env`, ...). Dependency-Track's key goes in its own Secret (`DTRACK_API_KEY`).
 * The container runs as UID 10001 with a read-only root filesystem; `/out` and `/tmp` are writable volumes.
