@@ -15,7 +15,16 @@ Every item moves through four stages. The roadmap names the stage an item has re
 | integration-tested | Tested against a real implementation of the system it talks to: a real Vault, SoftHSM, OpenLDAP, files made by `keytool` or `ssh-keygen`, a certified OIDC provider, or a vendor emulator where the table says so. |
 | field-validated | Run against a real production estate by someone other than the author, with the result reported back. |
 
-## Now: 0.14.0, doctor
+## Now: 0.15.0, Dependency-Track round-trip
+
+| Item | Stage | Acceptance criterion |
+|---|---|---|
+| Downstream ingestion tests | implemented | A CBOM with applications, relationships and findings is uploaded into Dependency-Track 5.1 in CI, exported back and compared; the job records what survives (components, properties, dependency edges) and what does not (`cryptoProperties`, findings), and checks that 4.14 refuses the import instead of half doing it. Becomes integration-tested when the job has passed on GitHub Actions. |
+
+When that job passes, CycloneDX 1.7 below also becomes integration-tested: Dependency-Track 5.1 is then a
+real tool reading keycensus's 1.7 output.
+
+## Shipped in 0.14.0, doctor
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
@@ -60,8 +69,7 @@ Voltage reads export files and stays complete-or-failed.
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| CycloneDX 1.7, keeping 1.6 | implemented (0.13.0) | `--cbom-version 1.7` output validates against the 1.7 schema; algorithm names are normalised with the CycloneDX Cryptography Registry. |
-| Downstream ingestion tests | planned | A CBOM, with relationships and findings, round-trips through Dependency-Track in CI. |
+| CycloneDX 1.7, keeping 1.6 | implemented (0.13.0); read by Dependency-Track 5.1 in CI from 0.15.0 | `--cbom-version 1.7` output validates against the 1.7 schema; algorithm names are normalised with the CycloneDX Cryptography Registry. |
 | Versioned policy packs | planned | Each policy has a version, an effective date, references, applicability and a review date, and every scan records the exact policy version. |
 | NIST / CISA minimum elements | planned | A mapping table from the CBOM to the minimum elements, once the guidance under EO 14412 is published. |
 

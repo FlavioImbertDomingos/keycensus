@@ -71,8 +71,9 @@ Anything CycloneDX has no field for is carried as `properties` with a `keycensus
 
 ## Using it
 
-**Dependency-Track:** upload as a project BOM (`POST /api/v1/bom`). Crypto assets appear in the
-components view; vulnerabilities appear in the findings view with keycensus as the source.
+**Dependency-Track:** `keycensus upload dtrack` (see [DEPENDENCY-TRACK.md](DEPENDENCY-TRACK.md)). Use
+5.1 or later. Components, their `keycensus:*` properties and the dependency graph are kept;
+`cryptoProperties` and the findings are not.
 
 **Diff two scans:**
 

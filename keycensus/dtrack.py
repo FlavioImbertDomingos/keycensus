@@ -1,8 +1,9 @@
 """Upload a CBOM to OWASP Dependency-Track.
 
-Dependency-Track (>= 4.11) ingests CycloneDX 1.6 BOMs including cryptographic assets, so the
-CBOM keycensus writes can live next to your software BOMs: one project per HSM estate /
-environment, a new version per scan, policies and notifications on top.
+Dependency-Track 5.1 and later import `cryptographic-asset` components, their properties and the
+dependency graph; they do not store `cryptoProperties` or import embedded findings, and 4.x cannot hold
+cryptographic assets at all. docs/DEPENDENCY-TRACK.md has the details, checked in CI by
+tests/integration/dtrack_roundtrip.py.
 
     keycensus upload dtrack --url https://dtrack.example.com --api-key-env DTRACK_API_KEY \
         --project "hsm-estate" --version "2026-09-02" --cbom out/cbom.json --wait
@@ -87,7 +88,11 @@ class DependencyTrack:
             r = self.session.get(f"{self.url}/api/v1/bom/token/{token}", timeout=self.timeout)
             if r.status_code >= 400:
                 raise DependencyTrackError(f"token lookup failed: {r.status_code} {r.text[:200]}")
-            if not (r.json() or {}).get("processing", False):
+            body = r.json() or {}
+            if str(body.get("status", "")).upper() == "FAILED":  # Dependency-Track 5 reports failures here
+                raise DependencyTrackError("Dependency-Track could not process the BOM (status FAILED); "
+                                           "its log has the reason")  # fmt: skip
+            if not body.get("processing", False):
                 return True
             time.sleep(interval)
         return False
