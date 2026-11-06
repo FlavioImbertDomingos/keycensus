@@ -20,7 +20,7 @@
         analysis/executive.summarize() ──► quantum share + what is due before each PQC date
                   │
                   ▼
-        exporters/  json · csv · cbom (CycloneDX 1.6) · html_report · prometheus
+        exporters/  json · csv · cbom (CycloneDX 1.6 / 1.7) · html_report · prometheus
                   │
                   ▼
         cli.py (scan / serve / rules / collectors / controls / validate)

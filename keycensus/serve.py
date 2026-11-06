@@ -219,7 +219,10 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
             rendered = {
                 "/report.html": ("text/html; charset=utf-8", html_report.render(inv)),
                 "/inventory.json": ("application/json", json_export.render(inv)),
-                "/cbom.json": ("application/vnd.cyclonedx+json; version=1.6", cbom.render(inv)),
+                "/cbom.json": (
+                    f"application/vnd.cyclonedx+json; version={config.cbom_version}",
+                    cbom.render(inv, config.cbom_version),
+                ),
                 "/findings.json": (
                     "application/json",
                     json.dumps([f.to_dict() for f in inv.findings], indent=2),

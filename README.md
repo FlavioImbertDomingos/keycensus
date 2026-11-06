@@ -9,7 +9,7 @@ Certificate Transparency logs, TLS, LDAP and SSH endpoints and whole network ran
 against
 **PCI DSS v4.0**, **NIST SP 800-57 / 800-131A** and the **NIST IR 8547** post-quantum timeline.
 
-It answers three questions, not one: **what do we have** — a standards-based CBOM (CycloneDX 1.6), an HTML
+It answers three questions, not one: **what do we have** — a standards-based CBOM (CycloneDX 1.6 or 1.7), an HTML
 report a human can read, Prometheus metrics. **What just got worse** — every rescan is diffed and classified,
 so a key that became exportable pages someone instead of waiting for an audit. **What breaks if this key is
 revoked** — your SBOMs joined to the keys each application actually uses.
@@ -65,7 +65,7 @@ then open **http://localhost:9742/report.html**.
 | What | Where |
 |---|---|
 | HTML report | http://localhost:9742/report.html |
-| CBOM (CycloneDX 1.6) | http://localhost:9742/cbom.json |
+| CBOM (CycloneDX 1.6 or 1.7) | http://localhost:9742/cbom.json |
 | Raw inventory | http://localhost:9742/inventory.json |
 | Prometheus metrics | http://localhost:9742/metrics |
 | Vault UI (token `root`) | http://localhost:8200 |
@@ -246,7 +246,7 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 
 | Format | For | Notes |
 |---|---|---|
-| `cbom.json` | Auditors, Dependency-Track, PQC migration tools | CycloneDX 1.6, `cryptographic-asset` components; findings as `vulnerabilities`; **schema-validated in CI** |
+| `cbom.json` | Auditors, Dependency-Track, PQC migration tools | CycloneDX 1.6, or 1.7 with Cryptography Registry names; `cryptographic-asset` components; findings as `vulnerabilities`; **schema-validated in CI** |
 | `report.html` | Humans | Self-contained, printable, filterable. Opens with an executive summary: the share of quantum-vulnerable keys and certificates, and what must move before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) |
 | `inventory.json` | Scripts | Everything, including raw source fields; the executive summary as `executive` |
 | `inventory.csv` | Spreadsheets, GRC uploads | One row per asset with findings column |
@@ -404,8 +404,9 @@ Every collector's test stage, what it was tested against and its known limits ar
 What already shipped is in [CHANGELOG.md](CHANGELOG.md).
 
 0.12.0 made results trustworthy: scan completeness, coverage per source, a finding lifecycle an outage
-cannot close, and evidence-based FIPS claims. Next come `init`, `doctor` and packaging, collector
-qualification against real systems, then 0.13.0: the agent and central server, the web UI with owners and
+cannot close, and evidence-based FIPS claims. 0.13.0 adds CycloneDX 1.7 output with algorithm names from
+the CycloneDX Cryptography Registry. Next come `init`, `doctor` and packaging, collector qualification
+against real systems, then 0.14.0: the agent and central server, the web UI with owners and
 risk exceptions, and Jira and ServiceNow tickets.
 
 Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on

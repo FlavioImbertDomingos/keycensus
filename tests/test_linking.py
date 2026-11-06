@@ -19,7 +19,6 @@ from keycensus.linking import LinkingError, apply, impact, link, load_applicatio
 from keycensus.model import KIND_CERTIFICATE, Application, Inventory, SourceResult, utcnow
 
 from .conftest import make_asset
-from .test_exporters import cdx_validator  # noqa: F401 - fixture
 
 
 def sbom(path, name, version="1.0.0", purl=None, supplier="team-a", components=2):

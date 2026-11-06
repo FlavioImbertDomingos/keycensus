@@ -16,7 +16,7 @@ from .analysis.controls import CONTROLS
 from .analysis.policy import Policy, rule_catalogue
 from .collectors import DESCRIPTIONS, REGISTRY
 from .config import ConfigError, load
-from .exporters import FORMATS
+from .exporters import FORMATS, render_format
 from .model import SEVERITIES
 
 SEV_RANK = {s: i for i, s in enumerate(SEVERITIES)}
@@ -62,6 +62,8 @@ def main():
 @click.option("--carry-forward/--no-carry-forward", default=True, show_default=True,
               help="With --baseline: keep assets a failed or partial source could not observe, marked not "
                    "observed, so their findings stay open.")  # fmt: skip
+@click.option("--cbom-version", type=click.Choice(["1.6", "1.7"]), default=None,
+              help="CycloneDX version of cbom.json. Default: cbom.version in the config, else 1.6.")  # fmt: skip
 @click.option("--require-complete", is_flag=True,
               help="Exit 6 unless every source scanned its whole scope (no failed or partial source).")  # fmt: skip
 @click.option("--notify/--no-notify", default=None,
@@ -79,6 +81,7 @@ def scan(
     fail_on_new,
     fail_on_page,
     carry_forward,
+    cbom_version,
     require_complete,
     notify,
     notify_dry_run,
@@ -114,8 +117,8 @@ def scan(
     out.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for fmt in formats:
-        render, filename = FORMATS[fmt]
-        (out / filename).write_text(render(inv))
+        _, filename = FORMATS[fmt]
+        (out / filename).write_text(render_format(fmt, inv, cbom_version or config.cbom_version))
         written.append(filename)
         click.echo(f"wrote {out / filename}", err=True)
 
@@ -466,7 +469,9 @@ def diff(before, after, fmt, output, fail_on_new, fail_on_change, fail_on_page, 
 @click.option("-p", "--policy", "policy_path", default=None)
 @click.option("--sbom", "sboms", multiple=True, type=click.Path(exists=True),
               help="Extra SBOMs to link as applications (metadata.component; auto-match only).")  # fmt: skip
-def link(config_path, inventory_path, output_dir, formats, policy_path, sboms):
+@click.option("--cbom-version", type=click.Choice(["1.6", "1.7"]), default=None,
+              help="CycloneDX version of cbom.json. Default: cbom.version in the config, else 1.6.")  # fmt: skip
+def link(config_path, inventory_path, output_dir, formats, policy_path, sboms, cbom_version):
     """Link applications (SBOMs) to the assets of an existing scan, and rewrite the reports."""
     from .diff import load_inventory_dict
     from .linking import LinkingError, apply, impact
@@ -485,8 +490,8 @@ def link(config_path, inventory_path, output_dir, formats, policy_path, sboms):
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     for fmt in formats:
-        render, filename = FORMATS[fmt]
-        (out / filename).write_text(render(inv))
+        _, filename = FORMATS[fmt]
+        (out / filename).write_text(render_format(fmt, inv, cbom_version or config.cbom_version))
         click.echo(f"wrote {out / filename}", err=True)
     click.echo("")
     for row in impact(inv):

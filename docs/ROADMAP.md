@@ -55,12 +55,12 @@ breaking those down (mounts, slots, CAs, pages) comes with `keycensus doctor`.
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| CycloneDX 1.7, keeping 1.6 | planned | `--cbom-version 1.7` output validates against the 1.7 schema; algorithm names are normalised with the CycloneDX Cryptography Registry. |
+| CycloneDX 1.7, keeping 1.6 | implemented (0.13.0) | `--cbom-version 1.7` output validates against the 1.7 schema; algorithm names are normalised with the CycloneDX Cryptography Registry. |
 | Downstream ingestion tests | planned | A CBOM, with relationships and findings, round-trips through Dependency-Track in CI. |
 | Versioned policy packs | planned | Each policy has a version, an effective date, references, applicability and a review date, and every scan records the exact policy version. |
 | NIST / CISA minimum elements | planned | A mapping table from the CBOM to the minimum elements, once the guidance under EO 14412 is published. |
 
-## Then: 0.13.0, teams and scale
+## Then: 0.14.0, teams and scale
 
 Built on the 0.12.0 lifecycle, so an outage can never close a ticket or drop a finding out of the plan.
 

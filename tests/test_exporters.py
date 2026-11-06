@@ -2,33 +2,8 @@ import csv
 import io
 import json
 
-import pytest
-from jsonschema import Draft7Validator
-from referencing import Registry, Resource
-
 from keycensus.exporters import cbom, csv_export, html_report, json_export
 from keycensus.exporters.prometheus import InventoryCollector
-
-from .conftest import FIXTURES
-
-
-@pytest.fixture(scope="module")
-def cdx_validator():
-    schema = json.loads((FIXTURES / "bom-1.6.schema.json").read_text())
-    jsf = json.loads((FIXTURES / "jsf-0.82.schema.json").read_text())
-    spdx = json.loads((FIXTURES / "spdx.schema.json").read_text())
-    reg = Registry().with_resources(
-        [
-            ("jsf-0.82.SNAPSHOT.schema.json", Resource.from_contents(jsf)),
-            ("spdx.SNAPSHOT.schema.json", Resource.from_contents(spdx)),
-            (
-                "http://cyclonedx.org/schema/jsf-0.82.SNAPSHOT.schema.json",
-                Resource.from_contents(jsf),
-            ),
-            ("http://cyclonedx.org/schema/spdx.SNAPSHOT.schema.json", Resource.from_contents(spdx)),
-        ]
-    )
-    return Draft7Validator(schema, registry=reg)
 
 
 def test_cbom_is_schema_valid(sample_inventory, cdx_validator):

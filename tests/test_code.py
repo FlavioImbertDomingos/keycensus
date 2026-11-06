@@ -17,7 +17,6 @@ from keycensus.exporters import cbom
 from keycensus.model import KIND_ALGORITHM, KIND_KEY, Inventory, SourceResult, utcnow
 
 from .conftest import FIXTURES, make_cert, pem, source
-from .test_exporters import cdx_validator  # noqa: F401  (fixture)
 
 SAMPLE = FIXTURES / "code-sample"
 

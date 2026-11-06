@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.0 — 2026-11-05
+
+**CycloneDX 1.7, with algorithm names from the CycloneDX Cryptography Registry. 1.6 stays the default.**
+
+- `--cbom-version 1.7` on `scan` and `link`, or `cbom: {version: "1.7"}` in the config (also used by
+  `serve` for `/cbom.json`), writes a CycloneDX 1.7 CBOM. CI validates it against the official 1.7 schema,
+  including the registry's family and curve enums.
+- Algorithm components in 1.7 carry `algorithmFamily` and a name built from the family's registry pattern
+  (`RSA-OAEP-SHA-256-3072`, `ECDSA-P-256`, `AES-256-GCM`, `ML-KEM-768`), and `ellipticCurve` registry IDs
+  (`nist/P-256`) instead of `curve`. Keys and certificates link to their algorithms with
+  `relatedCryptographicAssets` instead of the deprecated `algorithmRef`, `subjectPublicKeyRef` and
+  `signatureAlgorithmRef`. Certificate signature algorithms use registry names (`RSA-PKCS1-1.5-SHA-256`).
+- A family is set only when the source establishes it. An RSA key with no known padding scheme, or an EC
+  key used for both signing and key agreement, gets no family and a `keycensus:registryNote` saying why.
+- The `code` collector now reports RSA padding and hash: Java transformations and signature names, Go's
+  `rsa.EncryptOAEP`, `SignPSS` and `SignPKCS1v15`, Python's `padding.OAEP` and `padding.PSS`, .NET's
+  `RSAEncryptionPadding` and `RSASignaturePadding`, and WebCrypto's `RSA-OAEP`, `RSA-PSS` and
+  `RSASSA-PKCS1-v1_5`. Groups with a scheme are labelled, for example `RSA-3072 (OAEP, SHA-256)`.
+- AWS KMS RSA keys with `KeyUsage: ENCRYPT_DECRYPT` are recorded as OAEP, the only RSA encryption KMS
+  supports.
+- The registry (`cryptography-defs.json`, spec release 1.7.2) ships inside the package.
+- 1.6 output keeps its names and `bom-ref`s; it gains the properties `keycensus:registryName`,
+  `keycensus:registryFamily` and `keycensus:registryNote`.
+- The roadmap's teams-and-scale release (agent and server, web UI, tickets) moves to 0.14.0.
+
 ## 0.12.0 — 2026-11-05
 
 **Trustworthy results: what was inspected, what was missed, and what backs each finding.**
