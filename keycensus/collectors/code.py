@@ -109,7 +109,7 @@ def cipher_spec(spec: str, java_default_ecb: bool = False) -> dict | None:
     if first == "des" and len(tokens) > 1 and tokens[1] in ("ede3", "ede"):
         alg, rest = "3DES", tokens[2:]
     elif first == "rsa":
-        return {"algorithm": "RSA", "key_size": None, "mode": None, "purpose": "encrypt"}
+        return dict(_rsa_padding(spec), algorithm="RSA", key_size=None, mode=None, purpose="encrypt")
     elif first in _BLOCK:
         alg, rest = _BLOCK[first], tokens[1:]
     else:
@@ -155,6 +155,11 @@ def _size_ahead(lines: list[str], i: int, pattern: str, window: int = 6) -> int 
     return int(m.group(1)) if m else None
 
 
+def _hash_ahead(lines: list[str], i: int, pattern: str, window: int = 4) -> str | None:
+    m = re.search(pattern, "\n".join(lines[i : i + window]))
+    return hash_name(m.group(1)) if m else None
+
+
 def _curve_ahead(lines: list[str], i: int, pattern: str, window: int = 6) -> str | None:
     m = re.search(pattern, "\n".join(lines[i : i + window]))
     return curve_name(m.group(1)) if m else None
@@ -181,15 +186,32 @@ def _java_kpg(alg: str, lines: list[str], i: int) -> dict | None:
     return None
 
 
+def _rsa_padding(spec: str) -> dict:
+    """Padding scheme in a Java/OpenSSL transformation: RSA/ECB/OAEPWithSHA-256AndMGF1Padding, RSA/ECB/PKCS1Padding."""
+    m = re.search(r"OAEP(?:With(SHA-?\d+|SHA3-\d+))?", spec, re.I)
+    if m:
+        h = hash_name(m.group(1)) if m.group(1) else None
+        return {"scheme": "OAEP", "hash": h or ("SHA-1" if re.search(r"OAEPPadding", spec, re.I) else None)}
+    if re.search(r"PKCS1", spec, re.I):
+        return {"scheme": "PKCS1"}
+    return {}
+
+
 def _java_sig(spec: str) -> list[dict]:
+    if spec.upper() == "RSASSA-PSS":
+        return [dict(_pk("RSA"), scheme="PSS")]
     m = re.fullmatch(r"(\w+?)with(RSA|ECDSA|DSA|RSA/PSS|RSAandMGF1)", spec, re.I)
     if not m:
         return {"ed25519": [_pk("Ed25519")], "ml-dsa": [_pk("ML-DSA")]}.get(spec.lower(), [])
-    pub = {"rsa": "RSA", "ecdsa": "EC", "dsa": "DSA"}.get(
-        m.group(2).lower().split("/")[0].replace("andmgf1", ""), "RSA"
-    )
-    out = [_pk(pub)]
+    kind = m.group(2).lower()
+    pub = {"rsa": "RSA", "ecdsa": "EC", "dsa": "DSA"}.get(kind.split("/")[0].replace("andmgf1", ""), "RSA")
     h = _hash(m.group(1))
+    key = _pk(pub)
+    if h:
+        key["hash"] = h["algorithm"]
+    if pub == "RSA":
+        key["scheme"] = "PSS" if ("pss" in kind or "mgf1" in kind) else "PKCS1"
+    out = [key]
     if h and h["algorithm"] in ("MD5", "SHA-1", "MD2"):
         out.append(dict(h, purpose="sign"))
     return out
@@ -215,8 +237,12 @@ def _webcrypto(name: str, lines: list[str], i: int) -> dict | None:
         return None
     n = name.upper()
     if n.startswith("RSA"):
-        return _pk("RSA", _size_ahead(lines, i, r"modulusLength\s*:\s*(\d{3,5})"),
-                   purpose="encrypt" if n == "RSA-OAEP" else "sign")  # fmt: skip
+        key = _pk("RSA", _size_ahead(lines, i, r"modulusLength\s*:\s*(\d{3,5})"),
+                  purpose="encrypt" if n == "RSA-OAEP" else "sign")  # fmt: skip
+        key["scheme"] = {"RSA-OAEP": "OAEP", "RSA-PSS": "PSS", "RSASSA-PKCS1-V1_5": "PKCS1"}.get(n)
+        hm = re.search(r"hash\s*:\s*['\"`](SHA-\d+)", "\n".join(lines[i : i + 6]))
+        key["hash"] = hash_name(hm.group(1)) if hm else None
+        return key
     if n in ("ECDSA", "ECDH"):
         return _pk("EC", curve=_curve_ahead(lines, i, r"namedCurve\s*:\s*['\"`]([\w-]+)"),
                    purpose="derive" if n == "ECDH" else "sign")  # fmt: skip
@@ -265,6 +291,10 @@ PATTERNS: dict[str, list[Pattern]] = {
         P("cryptography dsa", r"\bdsa\.generate_private_key\(",
           lambda m, L, i: _pk("DSA", _size_ahead(L, i, r"key_size\s*=\s*(\d{3,5})", 4))),
         P("pycryptodome RSA", r"\bRSA\.generate\(\s*(\d{3,5})", lambda m, L, i: _pk("RSA", int(m[1]))),
+        P("cryptography OAEP", r"\bpadding\.OAEP\(",
+          lambda m, L, i: dict(_pk("RSA", purpose="encrypt"), scheme="OAEP",
+                               hash=_hash_ahead(L, i, r"algorithm\s*=\s*hashes\.(SHA\d+|SHA3_\d+)\("))),
+        P("cryptography PSS", r"\bpadding\.PSS\(", lambda m, L, i: dict(_pk("RSA"), scheme="PSS")),
         P("pycryptodome ECC", r"\bECC\.generate\(\s*curve\s*=\s*['\"]([\w-]+)['\"]",
           lambda m, L, i: _pk("EC", curve=curve_name(m[1]))),
     ],
@@ -298,6 +328,14 @@ PATTERNS: dict[str, list[Pattern]] = {
           lambda m, L, i: _pk("X25519", purpose="derive") if m[1] == "X25519"
           else _pk("EC", curve=curve_name(m[1]), purpose="derive")),
         P("crypto/ed25519", r"\bed25519\.GenerateKey\(", lambda m, L, i: _pk("Ed25519")),
+        P("crypto/rsa OAEP", r"\brsa\.(?:Encrypt|Decrypt)OAEP\(\s*(?:sha(\d+)\.New(\d*)\(\))?",
+          lambda m, L, i: dict(_pk("RSA", purpose="encrypt"), scheme="OAEP",
+                               hash=hash_name(f"sha{m[2] or m[1]}") if m[1] else None)),
+        P("crypto/rsa PSS", r"\brsa\.(?:Sign|Verify)PSS\((?:[^)\n]*?\bcrypto\.(SHA\d+))?",
+          lambda m, L, i: dict(_pk("RSA"), scheme="PSS", hash=hash_name(m[1]) if m[1] else None)),
+        P("crypto/rsa PKCS1v15", r"\brsa\.(Sign|Verify|Encrypt|Decrypt)PKCS1v15\((?:[^)\n]*?\bcrypto\.(SHA\d+))?",
+          lambda m, L, i: dict(_pk("RSA", purpose="sign" if m[1] in ("Sign", "Verify") else "encrypt"), scheme="PKCS1",
+                               hash=hash_name(m[2]) if m[2] else None)),
         P("crypto/mlkem", r"\bmlkem\.GenerateKey(768|1024)\(", lambda m, L, i: _pk("ML-KEM", int(m[1]), purpose="derive")),
     ],
     "javascript": [
@@ -323,6 +361,11 @@ PATTERNS: dict[str, list[Pattern]] = {
         P("ECDsa", r"\bECDsa\.Create\(\s*(?:ECCurve\.NamedCurves\.(nist\w+))?",
           lambda m, L, i: _pk("EC", curve=curve_name(m[1]) if m[1] else None)),
         P("ECDiffieHellman", r"\bECDiffieHellman\.Create\(", lambda m, L, i: _pk("EC", purpose="derive")),
+        P("RSAEncryptionPadding", r"\bRSAEncryptionPadding\.(Oaep(SHA\d+|SHA3_\d+)?|Pkcs1)\b",
+          lambda m, L, i: dict(_pk("RSA", purpose="encrypt"), scheme="PKCS1" if m[1] == "Pkcs1" else "OAEP",
+                               hash=hash_name(m[2]) if m[2] else ("SHA-1" if m[1] == "Oaep" else None))),
+        P("RSASignaturePadding", r"\bRSASignaturePadding\.(Pss|Pkcs1)\b",
+          lambda m, L, i: dict(_pk("RSA"), scheme="PSS" if m[1] == "Pss" else "PKCS1")),
     ],
     "c": [
         P("OpenSSL EVP digest", r"\bEVP_(md5|sha1|sha224|sha256|sha384|sha512|sha3_\d+)\s*\(", lambda m, L, i: _hash(m[1])),
@@ -356,6 +399,8 @@ class Hit:
     api: str
     language: str
     test: bool
+    scheme: str | None = None  # RSA padding: OAEP, PSS, PKCS1
+    hash: str | None = None  # the hash an RSA/ECDSA signature or OAEP uses
 
 
 @dataclass
@@ -365,7 +410,7 @@ class _Group:
 
 def _norm(d: dict, api: str, rel: str, line: int, lang: str, test: bool) -> Hit:
     return Hit(d["algorithm"], d.get("key_size"), d.get("curve"), d.get("mode"), d.get("purpose", "encrypt"), rel,
-               line, api, lang, test)  # fmt: skip
+               line, api, lang, test, d.get("scheme"), d.get("hash"))  # fmt: skip
 
 
 def scan_api(text: str, lang: str, rel: str, test: bool) -> list[Hit]:
@@ -513,10 +558,12 @@ class CodeCollector(Collector):
     def _group(self, root: Path, hits: list[Hit]) -> list[CryptoAsset]:
         groups: dict[tuple, list[Hit]] = {}
         for h in hits:
-            groups.setdefault((h.algorithm, h.key_size, h.curve, h.mode), []).append(h)
+            groups.setdefault((h.algorithm, h.key_size, h.curve, h.mode, h.scheme, h.hash), []).append(h)
         out = []
-        for (alg, size, curve, mode), hs in sorted(groups.items(), key=lambda kv: str(kv[0])):
+        for (alg, size, curve, mode, scheme, hsh), hs in sorted(groups.items(), key=lambda kv: str(kv[0])):
             label = alg + (f"-{curve}" if curve else f"-{size}" if size else "") + (f"/{mode}" if mode else "")
+            if scheme or hsh:
+                label += f" ({', '.join(x for x in (scheme, hsh) if x)})"
             purposes = sorted({h.purpose for h in hs})
             occ = [{"file": h.file, "line": h.line, "api": h.api, "language": h.language, **({"test": True} if h.test
                     else {})} for h in hs[:200]]  # fmt: skip
@@ -525,7 +572,7 @@ class CodeCollector(Collector):
                 algorithm=alg, key_size=size, curve=curve, key_type="algorithm",
                 purposes=[{"digest": "digest", "derive": "derive"}.get(p, p) for p in purposes],
                 location=str(root), state="active",
-                extra={"mode": mode, "occurrences": occ, "occurrence_count": len(hs),
+                extra={"mode": mode, "scheme": scheme, "hash": hsh, "occurrences": occ, "occurrence_count": len(hs),
                        "files": len({h.file for h in hs}), "languages": sorted({h.language for h in hs}),
                        "only_in_tests": all(h.test for h in hs), "repository": str(root)},
             ))  # fmt: skip

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
+from jsonschema import Draft7Validator
+from referencing import Registry, Resource
 
 from keycensus.config import SourceConfig
 from keycensus.model import KIND_CERTIFICATE, KIND_KEY, CryptoAsset, Inventory, SourceResult, utcnow
@@ -146,3 +149,22 @@ def sample_inventory() -> Inventory:
                                                SourceResult(name="broken", type="vault", error="boom")])  # fmt: skip
     inv.findings = evaluate(inv.assets, Policy.default())
     return inv
+
+
+@pytest.fixture(scope="module")
+def cdx_validator():
+    schema = json.loads((FIXTURES / "bom-1.6.schema.json").read_text())
+    jsf = json.loads((FIXTURES / "jsf-0.82.schema.json").read_text())
+    spdx = json.loads((FIXTURES / "spdx.schema.json").read_text())
+    reg = Registry().with_resources(
+        [
+            ("jsf-0.82.SNAPSHOT.schema.json", Resource.from_contents(jsf)),
+            ("spdx.SNAPSHOT.schema.json", Resource.from_contents(spdx)),
+            (
+                "http://cyclonedx.org/schema/jsf-0.82.SNAPSHOT.schema.json",
+                Resource.from_contents(jsf),
+            ),
+            ("http://cyclonedx.org/schema/spdx.SNAPSHOT.schema.json", Resource.from_contents(spdx)),
+        ]
+    )
+    return Draft7Validator(schema, registry=reg)

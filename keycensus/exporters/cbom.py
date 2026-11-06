@@ -1,4 +1,4 @@
-"""CycloneDX 1.6 Cryptography Bill of Materials (CBOM).
+"""CycloneDX Cryptography Bill of Materials (CBOM), version 1.6 (default) or 1.7.
 
 A CBOM is a standard, machine-readable list of every cryptographic asset --
 the format auditors, PQC-migration tools and Dependency-Track understand.
@@ -23,6 +23,19 @@ Mapping:
 
 Algorithm components are de-duplicated: every RSA-2048 key points at the one
 `alg:RSA-2048` component, which carries the classical / quantum security levels.
+
+CycloneDX 1.7 (`version="1.7"`, `--cbom-version 1.7`) differs in three ways:
+
+* Algorithm components are named with the CycloneDX Cryptography Registry (keycensus.registry):
+  `name` follows the family's pattern (AES-256-GCM, RSA-OAEP-SHA-256-2048, ECDSA-P-256) and
+  `algorithmFamily` names the family, when the source establishes it. Curves use `ellipticCurve` with
+  registry identifiers (nist/P-256) instead of the deprecated `curve`.
+* Links use `relatedCryptographicAssets` instead of the deprecated `algorithmRef`, `subjectPublicKeyRef`
+  and `signatureAlgorithmRef`.
+* `specVersion` is 1.7 and `$schema` points at the 1.7 schema.
+
+1.6 output keeps its component names, so existing consumers see no change; the registry family and name
+are added there as `keycensus:registryFamily` and `keycensus:registryName` properties.
 """
 
 from __future__ import annotations
@@ -30,7 +43,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from .. import __version__
+from .. import __version__, registry
 from ..analysis import strength
 from ..analysis.controls import describe
 from ..model import (
@@ -44,6 +57,8 @@ from ..model import (
     iso,
 )
 
+VERSIONS = ("1.6", "1.7")
+DEFAULT_VERSION = "1.6"
 _CDX_STATES = {"pre-activation", "active", "suspended", "deactivated", "compromised", "destroyed"}
 SEVERITY_TO_CDX = {
     "critical": "critical",
@@ -54,14 +69,28 @@ SEVERITY_TO_CDX = {
 }
 
 
-def _alg_ref(asset: CryptoAsset) -> str:
+def _alg_ref(asset: CryptoAsset, v17: bool = False) -> str:
+    if v17:
+        norm = registry.normalise(asset)
+        if norm.resolved:
+            return f"alg:{norm.name}"
     return f"alg:{asset.display_algorithm}"
 
 
-def _algorithm_component(asset: CryptoAsset) -> dict:
+def _registry_props(norm: registry.RegistryName) -> list[dict]:
+    out = [{"name": "keycensus:registryName", "value": norm.name}]
+    if norm.family:
+        out.append({"name": "keycensus:registryFamily", "value": norm.family})
+    if norm.note:
+        out.append({"name": "keycensus:registryNote", "value": norm.note})
+    return out
+
+
+def _algorithm_component(asset: CryptoAsset, v17: bool = False) -> dict:
     s = strength.assess(asset)
+    norm = registry.normalise(asset)
     props: dict = {
-        "primitive": strength.primitive_for(asset),
+        "primitive": (norm.primitive if v17 and norm.primitive else None) or strength.primitive_for(asset),
         "executionEnvironment": "hardware"
         if asset.hardware_backed
         else "software-plain-ram"
@@ -71,7 +100,12 @@ def _algorithm_component(asset: CryptoAsset) -> dict:
     }
     if asset.key_size:
         props["parameterSetIdentifier"] = str(asset.key_size)
-    if asset.curve:
+    if v17:
+        if norm.family:
+            props["algorithmFamily"] = norm.family
+        if norm.curve:
+            props["ellipticCurve"] = norm.curve
+    elif asset.curve:
         props["curve"] = asset.curve
     if s.classical_bits is not None:
         props["classicalSecurityLevel"] = s.classical_bits
@@ -79,10 +113,11 @@ def _algorithm_component(asset: CryptoAsset) -> dict:
         props["nistQuantumSecurityLevel"] = s.nist_quantum_level
     return {
         "type": "cryptographic-asset",
-        "bom-ref": _alg_ref(asset),
-        "name": asset.display_algorithm,
+        "bom-ref": _alg_ref(asset, v17),
+        "name": norm.name if v17 and norm.resolved else asset.display_algorithm,
         "cryptoProperties": {"assetType": "algorithm", "algorithmProperties": props},
-        "properties": [{"name": "keycensus:quantumClass", "value": s.quantum_class}],
+        "properties": [{"name": "keycensus:quantumClass", "value": s.quantum_class}]
+        + ([] if v17 and norm.resolved and not norm.note else _registry_props(norm)),
     }
 
 
@@ -93,13 +128,16 @@ def _fn(purpose: str) -> str | None:
     }.get(purpose)  # fmt: skip
 
 
-def _key_component(asset: CryptoAsset) -> dict:
+def _key_component(asset: CryptoAsset, v17: bool = False) -> dict:
     rcm: dict = {
         "type": asset.key_type if asset.key_type in ("private-key", "public-key", "secret-key", "key") else "key",
         "id": asset.native_id,
         "state": asset.state if asset.state in _CDX_STATES else "active",
-        "algorithmRef": _alg_ref(asset),
     }  # fmt: skip
+    if v17:
+        rcm["relatedCryptographicAssets"] = [{"type": "algorithm", "ref": _alg_ref(asset, v17)}]
+    else:
+        rcm["algorithmRef"] = _alg_ref(asset)
     if asset.created:
         rcm["creationDate"] = iso(asset.created)
         rcm["activationDate"] = iso(asset.created)
@@ -134,16 +172,17 @@ def _key_component(asset: CryptoAsset) -> dict:
 _CDX_MODES = {"CBC", "ECB", "CCM", "GCM", "CFB", "OFB", "CTR"}
 
 
-def _code_algorithm_component(asset: CryptoAsset) -> dict:
+def _code_algorithm_component(asset: CryptoAsset, v17: bool = False) -> dict:
     """An algorithm the code calls, with its call sites as CycloneDX evidence."""
-    comp = _algorithm_component(asset)
+    comp = _algorithm_component(asset, v17)
     ex = asset.extra or {}
     mode = ex.get("mode")
     if mode:
         comp["cryptoProperties"]["algorithmProperties"]["mode"] = mode.lower() if mode in _CDX_MODES else "other"
+    norm = registry.normalise(asset)
     comp.update({
         "bom-ref": asset.id,
-        "name": asset.display_algorithm + (f"/{mode}" if mode else ""),
+        "name": norm.name if v17 and norm.resolved else asset.display_algorithm + (f"/{mode}" if mode else ""),
         "description": asset.name,
         "evidence": {"occurrences": [
             {"location": o["file"], "line": int(o["line"]), "additionalContext": f"{o['api']} ({o['language']})"}
@@ -156,19 +195,25 @@ def _code_algorithm_component(asset: CryptoAsset) -> dict:
     return comp
 
 
-def _cert_component(asset: CryptoAsset, sig_ref: str | None) -> dict:
+def _cert_component(asset: CryptoAsset, sig_ref: str | None, v17: bool = False) -> dict:
     cp: dict = {
         "subjectName": asset.subject or asset.name,
         "issuerName": asset.issuer or "",
         "certificateFormat": "X.509",
-        "subjectPublicKeyRef": _alg_ref(asset),
     }
     if asset.created:
         cp["notValidBefore"] = iso(asset.created)
     if asset.expires:
         cp["notValidAfter"] = iso(asset.expires)
-    if sig_ref:
-        cp["signatureAlgorithmRef"] = sig_ref
+    if v17:
+        related = [{"type": "publicKeyAlgorithm", "ref": _alg_ref(asset, v17)}]
+        if sig_ref:
+            related.append({"type": "signatureAlgorithm", "ref": sig_ref})
+        cp["relatedCryptographicAssets"] = related
+    else:
+        cp["subjectPublicKeyRef"] = _alg_ref(asset)
+        if sig_ref:
+            cp["signatureAlgorithmRef"] = sig_ref
     return {
         "type": "cryptographic-asset",
         "bom-ref": asset.id,
@@ -260,25 +305,26 @@ def _application_component(app) -> dict:
     return c
 
 
-def _signature_alg_component(asset: CryptoAsset) -> dict | None:
+def _signature_alg_component(asset: CryptoAsset, v17: bool = False) -> dict | None:
     if not asset.signature_algorithm:
         return None
-    ref = f"alg:sig:{asset.signature_algorithm}"
-    return {
+    norm = registry.signature_algorithm(asset.signature_algorithm)
+    named = v17 and norm is not None and norm.resolved
+    props: dict = {"primitive": "signature", "cryptoFunctions": ["sign", "verify"]}
+    if named:
+        props["algorithmFamily"] = norm.family
+    comp = {
         "type": "cryptographic-asset",
-        "bom-ref": ref,
-        "name": asset.signature_algorithm,
-        "cryptoProperties": {
-            "assetType": "algorithm",
-            "algorithmProperties": {
-                "primitive": "signature",
-                "cryptoFunctions": ["sign", "verify"],
-            },
-        },
+        "bom-ref": f"alg:sig:{norm.name if named else asset.signature_algorithm}",
+        "name": norm.name if named else asset.signature_algorithm,
+        "cryptoProperties": {"assetType": "algorithm", "algorithmProperties": props},
     }
+    if norm is not None and not named:
+        comp["properties"] = _registry_props(norm)
+    return comp
 
 
-def _certification_levels(inv: Inventory) -> dict[str, list[str]]:
+def _certification_levels(inv: Inventory, v17: bool = False) -> dict[str, list[str]]:
     """certificationLevel per shared algorithm component. A level appears only when every key and certificate
     using that algorithm has certificate-backed FIPS evidence for that same level; a FIPS claim without a
     certificate is "unknown". Mixed modules get no level at all rather than a misleading one."""
@@ -286,7 +332,7 @@ def _certification_levels(inv: Inventory) -> dict[str, list[str]]:
     for a in inv.assets:
         if a.kind in (KIND_KEY, KIND_CERTIFICATE):
             level = fips_level(a.fips_evidence) or ("unknown" if a.fips_validated else None)
-            seen.setdefault(_alg_ref(a), set()).add(level)
+            seen.setdefault(_alg_ref(a, v17), set()).add(level)
     out = {}
     for ref, levels in seen.items():
         if len(levels) == 1 and None not in levels:
@@ -294,27 +340,31 @@ def _certification_levels(inv: Inventory) -> dict[str, list[str]]:
     return out
 
 
-def build(inv: Inventory) -> dict:
+def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
+    if version not in VERSIONS:
+        raise ValueError(f"CycloneDX version {version!r} is not supported; use one of {', '.join(VERSIONS)}")
+    v17 = version == "1.7"
     components: dict[str, dict] = {}
-    levels = _certification_levels(inv)
+    levels = _certification_levels(inv, v17)
     for a in inv.assets:
         if a.kind in (KIND_KEY, KIND_CERTIFICATE):
-            if _alg_ref(a) not in components:
-                comp = _algorithm_component(a)
-                if _alg_ref(a) in levels:
-                    comp["cryptoProperties"]["algorithmProperties"]["certificationLevel"] = levels[_alg_ref(a)]
-                components[_alg_ref(a)] = comp
+            ref = _alg_ref(a, v17)
+            if ref not in components:
+                comp = _algorithm_component(a, v17)
+                if ref in levels:
+                    comp["cryptoProperties"]["algorithmProperties"]["certificationLevel"] = levels[ref]
+                components[ref] = comp
         if a.kind == KIND_KEY:
-            components[a.id] = _key_component(a)
+            components[a.id] = _key_component(a, v17)
         elif a.kind == KIND_CERTIFICATE:
-            sig = _signature_alg_component(a)
+            sig = _signature_alg_component(a, v17)
             if sig:
                 components.setdefault(sig["bom-ref"], sig)
-            components[a.id] = _cert_component(a, sig["bom-ref"] if sig else None)
+            components[a.id] = _cert_component(a, sig["bom-ref"] if sig else None, v17)
         elif a.kind == KIND_PROTOCOL:
             components[a.id] = _protocol_component(a)
         elif a.kind == KIND_ALGORITHM:
-            components[a.id] = _code_algorithm_component(a)
+            components[a.id] = _code_algorithm_component(a, v17)
 
     for app in inv.applications:
         components[app.ref] = _application_component(app)
@@ -341,9 +391,11 @@ def build(inv: Inventory) -> dict:
             }
         )
 
+    head = {"$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json"} if v17 else {}
     return {
+        **head,
         "bomFormat": "CycloneDX",
-        "specVersion": "1.6",
+        "specVersion": version,
         "serialNumber": f"urn:uuid:{uuid.uuid4()}",
         "version": 1,
         "metadata": {
@@ -364,12 +416,12 @@ def build(inv: Inventory) -> dict:
         },
         "components": comp_list,
         "dependencies": [
-            {"ref": a.id, "dependsOn": [_alg_ref(a)]} for a in inv.assets if a.kind in (KIND_KEY, KIND_CERTIFICATE)
+            {"ref": a.id, "dependsOn": [_alg_ref(a, v17)]} for a in inv.assets if a.kind in (KIND_KEY, KIND_CERTIFICATE)
         ]
         + [{"ref": app.ref, "dependsOn": list(app.asset_ids)} for app in inv.applications],
         "vulnerabilities": vulns,
     }
 
 
-def render(inv: Inventory) -> str:
-    return json.dumps(build(inv), indent=2) + "\n"
+def render(inv: Inventory, version: str = DEFAULT_VERSION) -> str:
+    return json.dumps(build(inv, version), indent=2) + "\n"

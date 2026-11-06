@@ -362,5 +362,7 @@ class AwsKmsCollector(Collector):
                 "custom_key_store_id": md.get("CustomKeyStoreId"),
                 "rotation_period_days": rotation_period,
                 "description": md.get("Description"),
+                # KMS encrypts with RSA only under RSAES_OAEP (SHA-1 or SHA-256, chosen per call).
+                "scheme": "OAEP" if alg == "RSA" and usage == "ENCRYPT_DECRYPT" else None,
             },
         )

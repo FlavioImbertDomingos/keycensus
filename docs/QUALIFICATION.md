@@ -4,7 +4,7 @@ How far each part of keycensus has been tested, against what, and what it is kno
 defined in [ROADMAP.md](ROADMAP.md#stages). Nothing here is field-validated yet: if you run keycensus
 against a real estate, an issue saying which collectors worked is the most useful report you can send.
 
-Last updated for 0.12.0. Every row runs in CI on every push unless it says otherwise.
+Last updated for 0.13.0. Every row runs in CI on every push unless it says otherwise.
 
 ## Collectors
 
@@ -39,6 +39,7 @@ forward if it fails, because a failed source never removes anything.
 | Signed scan manifests | Unit tests: tampered files, wrong keys, moved timestamps | implemented |
 | Hash-chained audit log | Unit tests: edited and deleted lines, HMAC, continuation after rotation | implemented |
 | Change alerts and webhooks | Unit tests; the Prometheus alert rules are checked with `promtool` in CI | implemented |
+| CycloneDX 1.6 and 1.7 output | CI: both versions validated against the official schemas; every 1.7 `algorithmFamily` checked against the Cryptography Registry and every name against its family's patterns; RSA padding read from code that compiles with javac, go and node, and from AWS KMS under moto | implemented |
 | `serve` end to end | The docker compose smoke test in CI: SoftHSM, Vault, the demo sources, `/inventory.json`, `/cbom.json`, `/metrics` | integration-tested |
 
 ## FIPS 140

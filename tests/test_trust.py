@@ -33,7 +33,6 @@ from keycensus.model import (
 from keycensus.scanner import scan
 
 from .conftest import make_asset, source
-from .test_exporters import cdx_validator  # noqa: F401  (fixture)
 
 
 def _weak_key_dir(tmp_path):

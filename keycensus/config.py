@@ -65,6 +65,7 @@ class Config:
     audit: dict[str, Any] | None = None  # see keycensus.audit
     signing: dict[str, Any] | None = None  # see keycensus.signing
     config_sha256: str | None = None  # of the config file as loaded, for the audit log and signed manifests
+    cbom_version: str = "1.6"  # `cbom: {version: "1.7"}`; see keycensus.exporters.cbom
 
 
 def load(path: str | Path) -> Config:
@@ -91,6 +92,12 @@ def load(path: str | Path) -> Config:
     changes = raw.get("changes") or {}
     if not isinstance(changes, dict):
         raise ConfigError(f"{path}: 'changes' must be a mapping")
+    cbom_block = raw.get("cbom") or {}
+    if not isinstance(cbom_block, dict):
+        raise ConfigError(f"{path}: 'cbom' must be a mapping")
+    cbom_version = str(cbom_block.get("version", "1.6"))
+    if cbom_version not in ("1.6", "1.7"):
+        raise ConfigError(f"{path}: cbom.version is {cbom_version!r}; expected 1.6 or 1.7")
     for block in ("serve", "audit", "signing", "secrets"):
         if raw.get(block) is not None and not isinstance(raw.get(block), dict):
             raise ConfigError(f"{path}: '{block}' must be a mapping")
@@ -119,4 +126,5 @@ def load(path: str | Path) -> Config:
         audit=raw.get("audit"),
         signing=raw.get("signing"),
         config_sha256=hashlib.sha256(data).hexdigest(),
+        cbom_version=cbom_version,
     )
