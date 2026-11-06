@@ -63,7 +63,7 @@ from ..model import (
     STATE_UNKNOWN,
     CryptoAsset,
 )
-from .base import Collector
+from .base import Collector, gap_kind
 
 log = logging.getLogger(__name__)
 
@@ -189,21 +189,37 @@ class KeySafe5Collector(Collector):
             raise RuntimeError(f"GET {path} -> {r.status_code}: {r.text[:200]}")
         return r.json()
 
-    def _list(self, path: str) -> list[dict]:
-        """KeySafe 5 lists come either as a bare array or as {"keys"|"items"|"data": [...]} with paging."""
+    MAX_PAGES = 1000
+
+    def _list(self, path: str, track: bool = False) -> list[dict]:
+        """KeySafe 5 lists come either as a bare array or as {"keys"|"items"|"data": [...]} with paging.
+        With `track`, a page that fails after the first, or a listing cut off at MAX_PAGES, is a coverage
+        gap instead of an error or a silent truncation."""
         out: list[dict] = []
         params: dict = {}
         page = 0
         while True:
-            data = self._get(path, params or None)
+            try:
+                data = self._get(path, params or None)
+            except (RuntimeError, requests.RequestException) as exc:
+                if not (track and page):
+                    raise
+                self.coverage.gap("keys", "listing", f"stopped at page {page + 1}: {exc}", gap_kind(exc))
+                return out
             if isinstance(data, list):
                 return data
             items = next(
                 (data[k] for k in ("keys", "hsms", "items", "data", "results") if isinstance(data.get(k), list)), []
             )
             out.extend(items)
+            if track:
+                self.coverage.ok("keys", len(items))
             nxt = data.get("next") or data.get("nextPage") or data.get("nextLink")
-            if not nxt or not items or page > 1000:
+            if nxt and items and page + 1 >= self.MAX_PAGES:
+                if track:
+                    self.coverage.gap("keys", "listing", f"stopped after {self.MAX_PAGES} pages", "unavailable")
+                return out
+            if not nxt or not items:
                 return out
             page += 1
             params = {"page": nxt} if not str(nxt).startswith("http") else {}
@@ -217,7 +233,7 @@ class KeySafe5Collector(Collector):
         errors = []
         for path in self.keys_paths:
             try:
-                keys = self._list(path)
+                keys = self._list(path, track=True)
                 break
             except RuntimeError as exc:
                 errors.append(str(exc))
@@ -238,7 +254,12 @@ class KeySafe5Collector(Collector):
                     }
             except RuntimeError as exc:  # optional
                 log.debug("[%s] hsm inventory unavailable: %s", self.name, exc)
-        return [self._asset(k, hsms) for k in keys if isinstance(k, dict)]
+        assets = [self._asset(k, hsms) for k in keys if isinstance(k, dict)]
+        if "keys" not in self.coverage.scopes:  # a bare array: one page, all of it
+            self.coverage.ok("keys", len(keys))
+        for a in assets:
+            a.extra["coverage_scope"] = ["keys:listing"]
+        return assets
 
     def _field(self, rec: dict, key: str):
         names = (self.field_map[key],) if key in self.field_map else FIELDS[key]

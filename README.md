@@ -123,7 +123,11 @@ cp config/keycensus.example.yml config/keycensus.yml     # describe your sources
 cp .env.example .env                                     # secrets go here, never in YAML
 pip install "keycensus[all]"                             # or use the container
 keycensus scan -c config/keycensus.yml -o ./out
+keycensus doctor -c config/keycensus.yml                 # what each source reached, and what to grant
 ```
+
+If a source fails or comes back partial, `keycensus doctor` says which permission is missing and which file
+in `deploy/` grants it. See [docs/DOCTOR.md](docs/DOCTOR.md).
 
 ```yaml
 # config/keycensus.yml
@@ -366,6 +370,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/ALERTING.md](docs/ALERTING.md) — alerting on **change**: urgency, `keycensus_change_total`, the shipped rules, webhooks
 - [docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md) — live tests against real Azure / GCP accounts via OIDC (harness ready, not yet run)
 - [docs/QUALIFICATION.md](docs/QUALIFICATION.md) — what each collector was tested against, and its known limits
+- [docs/DOCTOR.md](docs/DOCTOR.md) — `keycensus doctor`: what each source reached, what it missed, and the grant that fixes it
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, with stages and acceptance criteria
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
@@ -405,9 +410,10 @@ What already shipped is in [CHANGELOG.md](CHANGELOG.md).
 
 0.12.0 made results trustworthy: scan completeness, coverage per source, a finding lifecycle an outage
 cannot close, and evidence-based FIPS claims. 0.13.0 adds CycloneDX 1.7 output with algorithm names from
-the CycloneDX Cryptography Registry. Next come `init`, `doctor` and packaging, collector qualification
-against real systems, then 0.14.0: the agent and central server, the web UI with owners and
-risk exceptions, and Jira and ServiceNow tickets.
+the CycloneDX Cryptography Registry. 0.14.0 adds `keycensus doctor` and breaks down coverage for Vault,
+PKCS#11, AD CS, CipherTrust and KeySafe 5. Next come a Dependency-Track round-trip and Kubernetes in CI,
+versioned policy packs, `init` and packaging, then the agent and central server, the web UI with owners
+and risk exceptions, and Jira and ServiceNow tickets.
 
 Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on
 change (0.4.0).

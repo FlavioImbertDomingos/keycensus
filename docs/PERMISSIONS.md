@@ -3,7 +3,8 @@
 What each source needs, at the least. Every grant below is a list or metadata read: keycensus never
 uses a key, exports one, or reads a secret value other than its own credentials. The one exception is
 Kubernetes, where reading a secret's metadata and its value are the same permission. Ready-to-deploy files
-are in [`deploy/`](../deploy/README.md).
+are in [`deploy/`](../deploy/README.md). `keycensus doctor` names the grant a source is missing and the file
+below that holds it ([DOCTOR.md](DOCTOR.md)).
 
 | Source | Grant | File |
 |---|---|---|

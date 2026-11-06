@@ -318,5 +318,9 @@ def test_pkcs11_collector_with_softhsm(tmp_path, monkeypatch):
     assert by[("tdes", "secret-key")].algorithm == "3DES"
     assert by[("rsa", "private-key")].key_size == 2048 and by[("rsa", "private-key")].exportable is True
     assert ("rsa", "public-key") in by
+    assert res.status == "complete"
+    assert res.coverage.scopes["tokens"].scanned == 1
+    assert res.coverage.scopes["objects"].scanned == len(res.assets)
+    assert all(x.extra["coverage_scope"] == ["tokens:t", "objects:t"] for x in res.assets)
     assert all(a.hardware_backed is False for a in res.assets)
     assert json.dumps([a.to_dict() for a in res.assets])  # serialisable

@@ -56,7 +56,7 @@ from ..model import (
     STATE_UNKNOWN,
     CryptoAsset,
 )
-from .base import Collector
+from .base import Collector, gap_kind
 
 log = logging.getLogger(__name__)
 
@@ -173,7 +173,14 @@ class CipherTrustCollector(Collector):
         assets: list[CryptoAsset] = []
         skip = 0
         while True:
-            page = self._get("/api/v1/vault/keys2", {"limit": self.page, "skip": skip})
+            try:
+                page = self._get("/api/v1/vault/keys2", {"limit": self.page, "skip": skip})
+            except (RuntimeError, requests.RequestException) as exc:
+                if not skip:
+                    raise  # not even the first page: the source failed
+                # A later page failed: what was read is kept, and the rest is a gap, not a deletion.
+                self.coverage.gap("keys", "listing", f"stopped at skip={skip}: {exc}", gap_kind(exc))
+                return self._scoped(assets)
             resources = page.get("resources") or []
             for k in resources:
                 otype = str(k.get("objectType", ""))
@@ -187,8 +194,17 @@ class CipherTrustCollector(Collector):
                 assets.append(a)
             skip += len(resources)
             total = page.get("total")
+            if total is not None:
+                self.coverage.expect("keys", int(total))
+            self.coverage.ok("keys", len(resources))
             if not resources or (total is not None and skip >= int(total)):
-                return assets
+                return self._scoped(assets)
+
+    @staticmethod
+    def _scoped(assets: list[CryptoAsset]) -> list[CryptoAsset]:
+        for a in assets:
+            a.extra["coverage_scope"] = ["keys:listing"]
+        return assets
 
     def _asset(self, k: dict) -> CryptoAsset:
         otype = str(k.get("objectType", ""))

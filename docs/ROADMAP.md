@@ -15,7 +15,14 @@ Every item moves through four stages. The roadmap names the stage an item has re
 | integration-tested | Tested against a real implementation of the system it talks to: a real Vault, SoftHSM, OpenLDAP, files made by `keytool` or `ssh-keygen`, a certified OIDC provider, or a vendor emulator where the table says so. |
 | field-validated | Run against a real production estate by someone other than the author, with the result reported back. |
 
-## Now: 0.12.0, trustworthy results
+## Now: 0.14.0, doctor
+
+| Item | Stage | Acceptance criterion |
+|---|---|---|
+| `keycensus doctor` | implemented | For each source: what it reached, which scopes were partial and why, which permission is missing and the file that grants it. Runs the sources or reads an existing inventory.json. Becomes integration-tested when the compose smoke test's doctor steps (real Vault and SoftHSM) have passed in CI. See [DOCTOR.md](DOCTOR.md). |
+| Coverage for Vault, PKCS#11, AD CS, CipherTrust, KeySafe 5 | implemented (Vault, AD CS, CipherTrust, KeySafe 5), integration-tested (PKCS#11, SoftHSM) | Vault mounts and items, PKCS#11 tokens and objects, AD CS directory and exports, CipherTrust and KeySafe 5 listings report what they scanned and what they could not, so a denied mount or a missing export makes the source partial instead of failed or silently short. |
+
+## Shipped in 0.12.0, trustworthy results
 
 The question each release should answer better: what did we inspect, what did we miss, and what evidence
 supports each finding.
@@ -28,8 +35,7 @@ supports each finding.
 | `--require-complete` CI gate | integration-tested | `keycensus scan --require-complete` exits 6 unless every source scanned its whole scope. |
 | FIPS claims backed by evidence | implemented | keycensus never states a FIPS 140 standard or level without a CMVP certificate number in the source's `fips_evidence`. A vendor claim alone is `certificationLevel: unknown`. |
 
-Coverage for Vault, PKCS#11, CipherTrust, KeySafe 5, AD CS and Voltage is still complete-or-failed;
-breaking those down (mounts, slots, CAs, pages) comes with `keycensus doctor`.
+Voltage reads export files and stays complete-or-failed.
 
 ## Next
 
@@ -39,7 +45,6 @@ breaking those down (mounts, slots, CAs, pages) comes with `keycensus doctor`.
 |---|---|---|
 | `pipx install keycensus`, Homebrew, single-file binaries | planned | A clean machine goes from install to first report with no Python setup. |
 | `keycensus init` | planned | Asks which sources you run, tests each credential, writes the config and runs the first scan. |
-| `keycensus doctor` | planned | For each source: what it reached, which scopes were partial and why, which permission is missing and the policy file that grants it. Built on the coverage records from 0.12.0. |
 
 ### Collector qualification
 
@@ -60,7 +65,7 @@ breaking those down (mounts, slots, CAs, pages) comes with `keycensus doctor`.
 | Versioned policy packs | planned | Each policy has a version, an effective date, references, applicability and a review date, and every scan records the exact policy version. |
 | NIST / CISA minimum elements | planned | A mapping table from the CBOM to the minimum elements, once the guidance under EO 14412 is published. |
 
-## Then: 0.14.0, teams and scale
+## Then: teams and scale
 
 Built on the 0.12.0 lifecycle, so an outage can never close a ticket or drop a finding out of the plan.
 

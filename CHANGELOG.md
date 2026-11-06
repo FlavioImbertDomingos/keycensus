@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.14.0 — 2026-11-06
+
+**`keycensus doctor`, and coverage for the sources that were complete-or-failed.**
+
+- `keycensus doctor -c keycensus.yml` runs the sources and, for each one, says what it reached, what it
+  could not reach and why, and what to change: the missing permission, the file in `deploy/` that grants
+  it, or the option to fix. `-i inventory.json` explains a scan that already ran, `-s` picks sources,
+  `--json` is for scripts. It exits 2 on a failed source and 6 on a partial one, like
+  `scan --require-complete`.
+- Failures are classified (missing dependency, configuration, TLS trust, refused credentials, denied
+  access, network) and each gets a remedy specific to the source type, such as `pip install
+  'keycensus[aws]'`, read on `sys/mounts` for Vault, or the PKCS#11 library path.
+- Vault reports `mounts` and `items`. A Transit or PKI mount the token cannot list makes the source
+  partial instead of failing it, and keys in that mount are carried forward. A denied ACL policy read is
+  recorded as an optional permission.
+- PKCS#11 reports `tokens` and `objects`; an object whose attributes cannot be read is a gap instead of a
+  log line.
+- AD CS reports `directory` and `exports`. A domain controller that is down, or one missing export, no
+  longer fails the source when the other parts can be read; rows without a readable certificate are a gap.
+- CipherTrust and KeySafe 5 report their key listing: a page that fails after the first, or a KeySafe 5
+  listing cut off at 1000 pages, makes the source partial and keeps what was read.
+- Tests check that every optional permission a collector records has a remedy, that the grant it names is
+  in the `deploy/` file it points to, and that the shipped AWS policy leaves nothing to fix under moto's
+  IAM evaluation.
+- The compose smoke test runs `doctor` against the demo, and again with a Vault token whose policy lacks
+  one PKI path, and checks it names that mount and `deploy/vault/keycensus-policy.hcl`.
+- New: [docs/DOCTOR.md](docs/DOCTOR.md).
+
 ## 0.13.0 — 2026-11-05
 
 **CycloneDX 1.7, with algorithm names from the CycloneDX Cryptography Registry. 1.6 stays the default.**
