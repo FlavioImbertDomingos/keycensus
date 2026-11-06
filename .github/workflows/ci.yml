@@ -133,6 +133,83 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  dependency-track:
+    # A CBOM with applications, relationships and findings, uploaded with `keycensus upload dtrack` into
+    # a fresh Dependency-Track, exported back and compared. 4.14 has no type for cryptographic assets, so
+    # that row checks the import is refused rather than half done; it does not block the build.
+    name: Dependency-Track ${{ matrix.dt }} round-trip (CycloneDX ${{ matrix.cbom }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.expect == 'rejected' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { dt: "5.1.2", cbom: "1.7", expect: roundtrip }
+          - { dt: "5.1.2", cbom: "1.6", expect: roundtrip }
+          - { dt: "4.14.6", cbom: "1.6", expect: rejected }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Start Dependency-Track
+        env:
+          DT: ${{ matrix.dt }}
+        run: |
+          if [[ "$DT" == 5.* ]]; then
+            docker network create dt
+            docker run -d --name dt-db --network dt -e POSTGRES_DB=dtrack -e POSTGRES_USER=dtrack \
+              -e POSTGRES_PASSWORD=dtrack postgres:18-alpine
+            until docker exec dt-db pg_isready -U dtrack -d dtrack; do sleep 2; done
+            docker run -d --name dt --network dt -p 8080:8080 \
+              -e DT_DATASOURCE_URL=jdbc:postgresql://dt-db:5432/dtrack \
+              -e DT_DATASOURCE_USERNAME=dtrack -e DT_DATASOURCE_PASSWORD=dtrack \
+              -e DT_TELEMETRY_SUBMISSION_DEFAULT_ENABLED=false \
+              "ghcr.io/dependencytrack/apiserver:$DT"
+          else
+            docker run -d --name dt -p 8080:8080 "dependencytrack/apiserver:$DT"
+          fi
+      - name: Install
+        run: pip install -e ".[test]"
+      - name: Build a linked CBOM (certificates, keys, two applications, findings)
+        env:
+          CBOM: ${{ matrix.cbom }}
+        run: |
+          python demo/make_demo_certs.py "$RUNNER_TEMP/certs"
+          cat > "$RUNNER_TEMP/dt.yml" <<EOF
+          sources:
+            - name: certs
+              type: pem
+              paths: ["$RUNNER_TEMP/certs"]
+          applications:
+            - sbom: $GITHUB_WORKSPACE/demo/sboms/payments-api.cdx.json
+              uses: [{source: certs}]
+            - name: auth-service
+              uses: [{source: certs, algorithm: EC}]
+          EOF
+          keycensus scan -c "$RUNNER_TEMP/dt.yml" -o out -f cbom -f json --cbom-version "$CBOM"
+      - name: Round-trip through Dependency-Track
+        env:
+          EXPECT: ${{ matrix.expect }}
+        run: |
+          python tests/integration/dtrack_roundtrip.py --url http://localhost:8080 --cbom out/cbom.json \
+            --expect "$EXPECT" --summary "$GITHUB_STEP_SUMMARY" --report dtrack-report.json
+      - name: Keep the comparison
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dtrack-${{ matrix.dt }}-cdx-${{ matrix.cbom }}
+          path: |
+            dtrack-report.json
+            out/cbom.json
+          if-no-files-found: ignore
+      - name: Dependency-Track log on failure
+        if: failure()
+        run: docker logs dt 2>&1 | tail -300
+
   publish-image:
     runs-on: ubuntu-latest
     permissions:

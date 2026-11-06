@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.15.0 — 2026-11-06
+
+**A Dependency-Track round-trip in CI, and docs that say what Dependency-Track keeps.**
+
+- New CI job `dependency-track`: builds a linked CBOM (certificates, keys, algorithms, two applications,
+  findings), uploads it with `keycensus upload dtrack` into a fresh Dependency-Track 5.1.2, exports the
+  project back as CycloneDX 1.6 and 1.7 and compares the two. It checks that every component comes back
+  with its type and `keycensus:*` properties and that every dependency edge survives, and records what does
+  not (`cryptoProperties`, findings) in the job summary. A third run checks that Dependency-Track 4.14.6
+  refuses the CBOM rather than importing part of it.
+- `keycensus upload dtrack --wait` now fails when Dependency-Track 5 reports that it could not process
+  the BOM, instead of printing "processed".
+- Corrected docs/DEPENDENCY-TRACK.md, docs/CBOM.md and the FAQ. Reading Dependency-Track's source while
+  writing the job showed that 4.x has no component type for cryptographic assets, that 5.1 does not store
+  `cryptoProperties`, and that no version imports findings embedded in a BOM. The docs had said
+  Dependency-Track kept all three since 4.11.
+
 ## 0.14.0 — 2026-11-06
 
 **`keycensus doctor`, and coverage for the sources that were complete-or-failed.**

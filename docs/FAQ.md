@@ -90,9 +90,9 @@ source failed, 0 otherwise.
 `/report.html`, `/cbom.json` over HTTP — for Prometheus and for a bookmarkable live report.
 
 **The CBOM validates, but Dependency-Track shows nothing.**
-Make sure you're on a Dependency-Track version with CycloneDX 1.6 support (≥ 4.11) and upload
-with `Content-Type: application/vnd.cyclonedx+json`. Keep the default 1.6 output for Dependency-Track
-unless your release states that it reads CycloneDX 1.7; `--cbom-version 1.7` is for tools that do.
+Dependency-Track 4.x has no component type for cryptographic assets and does not import the CBOM. Use
+5.1 or later, which takes CycloneDX 1.6 and 1.7. Even there, algorithm details (`cryptoProperties`) and
+keycensus findings are not stored; [DEPENDENCY-TRACK.md](DEPENDENCY-TRACK.md) lists what is.
 
 **Severities feel wrong for my environment.**
 They're meant to be changed. Copy the default policy, edit `rules:`, pass `--policy`. See

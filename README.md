@@ -326,7 +326,7 @@ $ keycensus link -c keycensus.yml -i out/inventory.json -o out
 
 Those four unlinked assets are the interesting line: a key nothing claims is either dead weight or a blast
 radius nobody has mapped. The CBOM gets `application` components with `dependsOn` edges to the keys, so
-Dependency-Track and other CycloneDX tools render the graph.
+CycloneDX tools, Dependency-Track 5.1 and later among them, can show the graph.
 
 **Read it honestly.** These are *authorisations*, not observed use — a principal that may use a key is listed
 whether or not it ever did. That is what least-privilege review wants, and it is not telemetry. Scope also
@@ -411,8 +411,8 @@ What already shipped is in [CHANGELOG.md](CHANGELOG.md).
 0.12.0 made results trustworthy: scan completeness, coverage per source, a finding lifecycle an outage
 cannot close, and evidence-based FIPS claims. 0.13.0 adds CycloneDX 1.7 output with algorithm names from
 the CycloneDX Cryptography Registry. 0.14.0 adds `keycensus doctor` and breaks down coverage for Vault,
-PKCS#11, AD CS, CipherTrust and KeySafe 5. Next come a Dependency-Track round-trip and Kubernetes in CI,
-versioned policy packs, `init` and packaging, then the agent and central server, the web UI with owners
+PKCS#11, AD CS, CipherTrust and KeySafe 5. 0.15.0 adds a Dependency-Track round-trip in CI. Next come
+Kubernetes in CI, versioned policy packs, `init` and packaging, then the agent and central server, the web UI with owners
 and risk exceptions, and Jira and ServiceNow tickets.
 
 Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on
