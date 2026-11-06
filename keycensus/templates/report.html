@@ -50,6 +50,9 @@
   .exec .meter { flex:1; min-width:220px }
   .due.past td:first-child { color:var(--bad); font-weight:600 }
   .num { text-align:right; white-space:nowrap }
+  .coverage { margin:0 0 12px; padding:8px 12px; border-radius:6px; background:var(--bg) }
+  .coverage.partial, .coverage.failed { border-left:4px solid var(--bad) }
+  .coverage.complete { border-left:4px solid var(--ok) }
   .scroll { overflow-x:auto }
   .exec table { min-width:720px }
   @media print { .exec { break-inside:avoid } }
@@ -67,6 +70,14 @@
 <section class="exec" id="executive-summary">
   <h2>Executive summary</h2>
   <p class="headline">{{ ex.headline }}</p>
+  {% set incomplete = sources|selectattr("status", "ne", "complete")|list %}
+  <p class="coverage {{ scan_status }}" id="scan-coverage">
+    {% if not incomplete %}<strong>Scan complete:</strong> every source ({{ sources|length }}) scanned its whole scope.
+    {% else %}<strong>Scan {{ scan_status }}:</strong> {{ incomplete|length }} of {{ sources|length }} source{{ 's' if sources|length != 1 }} did not scan everything, so the counts below may be incomplete.
+      {% for s in incomplete %}<span class="small">{{ s.name }}: {% if s.status == 'failed' %}failed ({{ s.error }}){% else %}{{ s.coverage }}{% endif %}.</span> {% endfor %}
+      {% if summary.assets_unobserved %}{{ summary.assets_unobserved }} asset{{ 's' if summary.assets_unobserved != 1 }} could not be observed and {{ 'are' if summary.assets_unobserved != 1 else 'is' }} carried from the last scan; {{ summary.findings_unverified }} finding{{ 's' if summary.findings_unverified != 1 }} on them stay open but were not re-verified.{% endif %}
+    {% endif %}
+  </p>
   {% if ex.keys_and_certificates %}
   <div class="row">
     <div><div class="big">{{ ex.quantum_vulnerable_percent }}%</div><div class="muted small">quantum-vulnerable keys and certificates</div></div>
@@ -126,7 +137,7 @@
   <div class="tile {{ sev }}"><div class="n">{{ summary.findings_by_severity[sev] }}</div><div class="l">{{ sev }}</div></div>
   {% endfor %}
   <div class="tile"><div class="n">{{ pqc.vulnerable }}</div><div class="l">quantum-vulnerable</div></div>
-  <div class="tile"><div class="n {{ 'bad' if summary.sources_failed else 'ok' }}">{{ summary.sources - summary.sources_failed }}/{{ summary.sources }}</div><div class="l">sources OK</div></div>
+  <div class="tile"><div class="n {{ 'ok' if scan_status == 'complete' else 'bad' }}">{{ sources|selectattr("status", "eq", "complete")|list|length }}/{{ summary.sources }}</div><div class="l">sources complete</div></div>
 </div>
 
 <h2>Post-quantum readiness</h2>
@@ -159,7 +170,7 @@
   <tbody>
   {% for f in findings %}
   <tr>
-    <td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td>
+    <td><span class="sev {{ f.severity }}">{{ f.severity }}</span>{% if not f.verified %}<div><span class="pill" title="The asset could not be observed this scan; the finding stays open">not re-verified</span></div>{% endif %}</td>
     <td><strong>{{ f.title }}</strong><div class="small muted">{{ f.detail }}</div>
         <details><summary class="small">what to do</summary><div class="small">{{ f.remediation }}</div></details></td>
     <td>{{ f.asset_name }}<div class="small muted"><code>{{ f.asset_id }}</code></div></td>
@@ -197,6 +208,7 @@
     <td class="small">{{ a.expires or '—' }}{% if a.days_until_expiry is not none %}<div class="{{ 'bad' if a.days_until_expiry < 30 else 'muted' }}">{{ a.days_until_expiry|round|int }} d</div>{% endif %}</td>
     <td>{{ a.state }}</td>
     <td class="small">
+      {% if a.observed is sameas false %}<span class="pill vuln" title="{{ a.extra.not_observed_because }}">not observed since {{ (a.last_observed or '')[:10] }}</span>{% endif %}
       {% if a.hardware_backed %}<span class="pill">HSM</span>{% elif a.hardware_backed is sameas false %}<span class="pill">software</span>{% endif %}
       {% if a.exportable %}<span class="pill">exportable</span>{% endif %}
       {% if a.rotation_enabled %}<span class="pill">auto-rotate</span>{% elif a.rotation_enabled is sameas false %}<span class="pill">no rotation</span>{% endif %}
@@ -236,11 +248,12 @@
 
 <h2>Sources</h2>
 <table>
-  <thead><tr><th>Name</th><th>Type</th><th>Assets</th><th>Status</th><th>Time</th></tr></thead>
+  <thead><tr><th>Name</th><th>Type</th><th>Assets</th><th>Status</th><th>Coverage</th><th>Time</th></tr></thead>
   <tbody>
   {% for s in sources %}
-  <tr><td>{{ s.name }}</td><td>{{ s.type }}</td><td>{{ s.assets }}</td>
-      <td>{% if s.error %}<span class="bad">{{ s.error }}</span>{% else %}<span class="ok">ok</span>{% endif %}</td>
+  <tr><td>{{ s.name }}</td><td>{{ s.type }}</td><td>{{ s.assets }}{% if s.carried %}<div class="small muted">{{ s.carried }} not observed</div>{% endif %}</td>
+      <td>{% if s.status == 'failed' %}<span class="bad">failed: {{ s.error }}</span>{% elif s.status == 'partial' %}<span class="bad">partial</span>{% else %}<span class="ok">complete</span>{% endif %}</td>
+      <td class="small">{{ s.coverage or '—' }}{% if s.optional_denied %}<div class="muted">optional permissions denied: {{ s.optional_denied|join(', ') }}</div>{% endif %}</td>
       <td class="muted">{{ s.duration_seconds }} s</td></tr>
   {% endfor %}
   </tbody>

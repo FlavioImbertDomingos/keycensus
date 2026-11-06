@@ -364,7 +364,9 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/LINKING.md](docs/LINKING.md) — SBOM ↔ CBOM linking: which application uses which key, blast radius, orphan keys
 - [docs/DIFF.md](docs/DIFF.md) — diff mode: what changed since the last scan, and how to gate CI on it
 - [docs/ALERTING.md](docs/ALERTING.md) — alerting on **change**: urgency, `keycensus_change_total`, the shipped rules, webhooks
-- [docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md) — live tests against real Azure / GCP accounts via OIDC
+- [docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md) — live tests against real Azure / GCP accounts via OIDC (harness ready, not yet run)
+- [docs/QUALIFICATION.md](docs/QUALIFICATION.md) — what each collector was tested against, and its known limits
+- [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, with stages and acceptance criteria
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
 - [docs/POLICY.md](docs/POLICY.md) — every rule, how it decides, how to tune it
@@ -378,106 +380,36 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 
 ## Status & honesty
 
-- The PKCS#11, Vault, AWS KMS, PEM and TLS collectors run **real code paths** in the demo and tests
-  (SoftHSM, a real Vault, moto's AWS API, generated certs, a live TLS handshake).
-- The Azure Key Vault / Managed HSM and Google Cloud KMS collectors speak the documented REST APIs and are
-  tested against recorded responses; they have not yet run against a live subscription/project in CI.
-- **Azure RBAC consumers are mock-tested only.** The ARM role-assignment, access-policy and Managed HSM
-  local-RBAC paths are exercised against recorded responses; none has run against a live tenant. The live
-  harness asserts they degrade quietly rather than that they return anything, because a CI identity without
-  *Reader* is the normal case.
-- The CipherTrust Manager and KeySafe 5 collectors were written from the vendors' REST API references and
-  tested against mocks. Field names are matched tolerantly and can be remapped; a redacted real response is
-  the most useful issue you can open.
-- **The AD CS collector has not run against a live forest or CA yet.** The LDAP side is tested against an
-  in-memory directory with the real attribute names and encodings, the export side against CSVs shaped like
-  `certutil -view` output. `certutil` headers are localised, so `field_map` exists; a redacted export header
-  from a real CA is the most useful issue you can open.
-- **Voltage SecureData has no public inventory API.** The `voltage` collector consumes an export
-  (JSON or CSV, from the Management Console or an internal adapter) with a configurable field map.
-  If you run Voltage and can share a redacted export, that is the most useful issue you can open.
-- **The TLS key exchange probe** was tested against OpenSSL 3.5 (Node 22) and Go 1.24 TLS servers, and the
-  SSH probe against OpenSSH 9.6. Live internet endpoints were not part of the test run.
-- **OIDC** was tested end to end against `oidc-provider` (a certified OpenID provider): browser sign-in,
-  userinfo claims, logout, a refused user and client-credentials JWTs. **Timestamps** were verified against
-  FreeTSA and DigiCert's public TSAs, and cross-checked with `openssl ts -verify`.
-- **LDAP StartTLS** was tested against OpenLDAP `slapd`, with and without a certificate. **Certificate
-  Transparency** was run live against the Cert Spotter API; the tests replay one of its real responses.
-  crt.sh is supported but was returning errors during development, so its tests use recorded shapes.
-- **Keystores and SSH keys** are tested on files made by `keytool` (JKS, JCEKS with a secret key, PKCS#12),
-  `openssl` (legacy and current PKCS#12) and `ssh-keygen` (keys, authorized_keys, known_hosts, certificates);
-  SSH fingerprints match `ssh-keygen -l`.
-- **The Kubernetes collector is mock-tested.** It uses the official Python client against a local server that
-  answers in the API's shapes (secrets, pods, ingresses, cert-manager resources, pagination); it has not run
-  against a live cluster yet.
-- **Code scanning** is pattern-based on each language's standard crypto APIs. The sample repository it is
-  tested on compiles with javac, go, node, gcc and python. It does not follow variables or wrapper libraries
-  (`Cipher.getInstance(name)` with `name` from config is not seen), and reads the working tree, not history.
-- **Cloud auto-discovery is mock-tested.** AWS Organizations runs against moto's Organizations, STS and KMS;
-  Azure subscription and GCP project discovery against recorded API responses. None has run against a real
-  organization yet.
+Every collector's test stage, what it was tested against and its known limits are in
+[docs/QUALIFICATION.md](docs/QUALIFICATION.md). In short:
+
+- Integration-tested against real implementations: PKCS#11 (SoftHSM), Vault (in the compose smoke test),
+  AWS KMS and Organizations (moto, the AWS emulator), files and keystores (`openssl`, `keytool`,
+  `ssh-keygen`), TLS and StartTLS (OpenSSL 3.5, Go, OpenLDAP), SSH (OpenSSH 9.6), Certificate Transparency
+  (Cert Spotter), and code scanning (a sample repository that compiles in five languages).
+- Mock-tested only, not yet run against the real thing: Azure Key Vault, Google Cloud KMS, Kubernetes,
+  CipherTrust Manager, KeySafe 5, AD CS, and cloud organization discovery. A redacted real response for any
+  of these is the most useful issue you can open.
+- Voltage SecureData has no public inventory API; the `voltage` collector reads an export.
+- A scan that could not look never reports a key as removed or a finding as resolved: failed and partly
+  scanned sources are shown as such, and what they missed is carried forward as not observed.
+- keycensus never states a FIPS 140 level it cannot back with a CMVP certificate number.
 - Control text is paraphrased. keycensus is evidence for *your* assessment, not a QSA.
 - Cryptoperiod defaults are opinions (365 d symmetric, 730 d asymmetric). Change them.
 
 ## Roadmap
 
-- [x] Azure Key Vault / Managed HSM and Google Cloud KMS collectors *(0.2.0)*
-- [x] Entrust KeySafe 5 and Thales CipherTrust Manager REST collectors (beyond PKCS#11) *(0.2.0, mock-verified)*
-- [x] Diff mode: what changed since the last scan *(0.2.0)*
-- [x] Dependency-Track upload helper *(0.2.0)*
-- [x] Helm chart *(0.2.0)*
-- [x] SBOM ↔ CBOM linking: which application uses which key *(0.3.0)*
-- [x] Live integration tests against Azure Key Vault and Google Cloud KMS (OIDC, no stored secrets) *(0.3.0 — harness and fixtures; runs once the maintainer's accounts are wired up)*
-- [x] Alerting on change, not just on state: classified changes, `keycensus_change_total`, alert rules and a webhook *(0.4.0 — suggested by [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/); see [docs/ALERTING.md](docs/ALERTING.md))*
-- [x] Azure RBAC consumers (ARM API) and SPDX SBOMs for linking *(0.5.0)*
-- [x] Microsoft AD CS: CA certificates and templates from Active Directory, issued certificates from `certutil` exports *(0.6.0, mock-verified)*
-- [x] Hybrid and ML-KEM key exchange reported by the `tls` collector (and SSH), classified as allowed but temporary per NIST IR 8547 *(0.7.0)*
-- [x] Network discovery: TLS, LDAPS and SSH endpoints in CIDR ranges *(0.7.0)*
-- [x] Cloud auto-discovery across every AWS account and region, Azure subscription and GCP project *(0.7.0, mock-verified)*
+[docs/ROADMAP.md](docs/ROADMAP.md) lists what comes next, in order, with the stage each item has reached
+(planned, implemented, integration-tested, field-validated) and the acceptance criterion it must meet.
+What already shipped is in [CHANGELOG.md](CHANGELOG.md).
 
-Next, in order. The first three are the next three releases.
+0.12.0 made results trustworthy: scan completeness, coverage per source, a finding lifecycle an outage
+cannot close, and evidence-based FIPS claims. Next come `init`, `doctor` and packaging, collector
+qualification against real systems, then 0.13.0: the agent and central server, the web UI with owners and
+risk exceptions, and Jira and ServiceNow tickets.
 
-### 1. Safe to leave running
-
-- [x] `serve` binds to `127.0.0.1` by default, requires a token for the report and CBOM, and supports TLS; `/metrics` stays open *(0.8.0)*
-- [x] Signed releases: cosign signatures, build provenance and an SBOM for the keycensus image *(0.8.0; first signed image on the next push to main)*
-- [x] Least-privilege kits: IAM policies and a StackSet role, Azure and GCP custom roles, a Vault policy and an AD service-account checklist *(0.8.0)*
-- [x] Credentials from Vault, AWS Secrets Manager, Azure Key Vault or GCP Secret Manager *(0.8.0)*
-- [x] Hash-chained audit log: scans with credential references, config and policy changes, report and CBOM reads by token name, refused requests, webhooks *(0.8.0)*
-- [x] Signed scan records: Ed25519-signed manifest of every output, checked with `keycensus verify` *(0.8.0)*
-- [x] OIDC login for `serve`: browser sign-in with PKCE and machine JWTs, allow-listed by email, domain, group or subject *(0.9.0)*
-- [x] RFC 3161 timestamps on scan manifests, so the signing time does not rest on the scanner's clock *(0.9.0)*
-
-### 2. Easy to start
-
-- [ ] `brew install keycensus`, `pipx install keycensus` and single-file binaries on the releases page
-- [ ] `keycensus init`: asks which sources you run, tests each credential, writes the config and runs the first scan
-- [ ] `keycensus doctor`: for each source, what it can reach, which permission is missing and the policy that fixes it
-- [x] Executive summary at the top of the report: share of quantum-vulnerable keys and what is due before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) *(0.10.0)*
-
-### 3. Discovery: find what nobody listed
-
-- [x] LDAP with StartTLS (port 389) in network discovery *(0.11.0)*
-- [x] Certificate Transparency logs: every public certificate issued for your domains *(0.11.0)*
-- [x] Kubernetes secrets and cert-manager, JKS and PKCS#12 keystores, SSH host and user keys *(0.11.0; Kubernetes mock-verified)*
-- [x] Code scanning for hard-coded keys and cryptographic API use *(0.11.0)*
-
-### 4. Teams and scale
-
-- [ ] Agent and server: one agent per network zone sends signed results to a central server
-- [ ] Web UI with roles: findings with owners, due dates and expiring risk exceptions (PCI DSS 12.3.3's plan for weakened algorithms, as a workflow)
-- [ ] Jira and ServiceNow tickets per finding; GRC-ready export
-- [ ] Migration plan per quantum-vulnerable key: the deadline that applies (IR 8547, EO 14412 for federal scope), the replacement algorithm and the blast radius from SBOM linking
-
-### Validation and standards
-
-- [ ] Real-appliance validation of the CipherTrust and KeySafe 5 field mappings
-- [ ] AD CS validation against a live forest and CA database export
-- [ ] Map the CBOM to the NIST / CISA minimum elements once EO 14412's guidance is published
-
-Language: keycensus stays in Python. It spends its time waiting on HSMs, APIs and networks, so a rewrite
-would cost months of features for little speed. If the agent in item 4 needs a small static binary, that
-one component may be written in Go.
+Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on
+change (0.4.0).
 
 Sister project: [luna-exporter](https://github.com/FlavioImbertDomingos/luna-exporter) — Prometheus
 monitoring for Thales Luna appliances.

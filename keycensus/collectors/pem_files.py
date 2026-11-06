@@ -29,13 +29,14 @@ Key material is never stored: only the algorithm, size, fingerprints and protect
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
 from .. import secrets
 from ..model import KIND_KEY, CryptoAsset
 from . import keyfiles
-from .base import Collector
+from .base import GAP_DENIED, GAP_UNAVAILABLE, Collector
 
 log = logging.getLogger(__name__)
 
@@ -89,8 +90,15 @@ class PemCollector(Collector):
         self.max_bytes = int(self.opt.get("max_file_bytes", 10_000_000))
         self.passwords = keystore_passwords(self.opt, self.name)
         assets: list[CryptoAsset] = []
+        self.coverage.expect("paths", len(paths))
         for root in paths:
             root = Path(root).expanduser()
+            if not root.exists() or not os.access(root, os.R_OK):
+                why = "does not exist" if not root.exists() else "not readable"
+                self.coverage.gap("paths", str(root), why, GAP_UNAVAILABLE if why == "does not exist" else GAP_DENIED)
+                log.warning("[%s] %s %s", self.name, root, why)
+                continue
+            self.coverage.ok("paths")
             if root.is_file():
                 files = [root]
             else:
@@ -98,7 +106,10 @@ class PemCollector(Collector):
                 for pat in patterns:
                     files += list(root.rglob(pat) if recursive else root.glob(pat))
             for f in sorted({p for p in files if p.is_file()}):
-                assets += self._parse_file(f)
+                found = self._parse_file(f)
+                for a in found:
+                    a.extra["coverage_scope"] = [f"paths:{root}", *a.extra.get("coverage_scope", [])]
+                assets += found
         return assets
 
     def _parse_file(self, path: Path) -> list[CryptoAsset]:
@@ -108,6 +119,7 @@ class PemCollector(Collector):
                 return []
             data = path.read_bytes()
         except OSError as exc:
+            self.coverage.gap("files", str(path), exc, GAP_DENIED)
             log.warning("[%s] cannot read %s: %s", self.name, path, exc)
             return []
         try:
@@ -117,6 +129,8 @@ class PemCollector(Collector):
             return []
         mtime = datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat()
         assets = entries_to_assets(self, entries, str(path), str(path))
+        for a in assets:
+            a.extra["coverage_scope"] = [f"files:{path}"]
         for a in assets:
             if a.kind == KIND_KEY:
                 a.extra.setdefault("file_mtime", mtime)

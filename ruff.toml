@@ -11,3 +11,4 @@ select = ["E", "F", "I", "B", "UP", "W"]
 # The code scanner's API patterns are a table of regexes; splitting them hides what each one matches.
 "keycensus/collectors/code.py" = ["E501"]
 "tests/test_code.py" = ["E501"]
+"tests/test_trust.py" = ["E501"]

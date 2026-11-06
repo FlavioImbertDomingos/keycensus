@@ -78,10 +78,15 @@ def render(inv: Inventory) -> str:
                 "type": s.type,
                 "assets": len(s.assets),
                 "error": s.error,
+                "status": s.status,
+                "coverage": s.coverage.describe(),
+                "optional_denied": sorted(s.coverage.optional_denied),
+                "carried": s.carried,
                 "duration_seconds": round(s.duration_seconds, 2),
             }
             for s in inv.sources
         ],
+        scan_status=inv.status,
         pqc=pqc,
         executive=inv.executive(),
         kex=kex,

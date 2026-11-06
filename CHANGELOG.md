@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.12.0 — 2026-11-05
+
+**Trustworthy results: what was inspected, what was missed, and what backs each finding.**
+
+**A scan that could not look never closes anything**
+
+- Before this release, a source that failed or lost a permission made its assets look "removed" and their
+  findings "resolved" in diffs and change alerts. Now an asset missing from a failed source, or from the
+  part of a partial source that was not scanned, is *unverified*: `diff` lists it under
+  `assets_unverified` and its findings under `findings_unverified`, and change alerts say
+  `asset-unverified` (digest) and `finding-unverified` (ignore) instead of `asset-removed` (page) and
+  `finding-resolved`.
+- `scan --baseline` and `serve` carry those assets forward into the new inventory with `observed: false`
+  and `last_observed`, so the report and CBOM still show them, and their findings stay open with
+  `verified: false` ("not re-verified" in the report). `--no-carry-forward` turns it off.
+- A real deletion in a scope that was fully scanned is still `asset-removed`.
+
+**Complete, partial and failed sources, with coverage**
+
+- Every source reports `status` (complete, partial, failed) and `coverage`: per scope, how many items were
+  expected, scanned, denied, unavailable or failed, plus optional permissions that were denied. When the
+  total cannot be discovered, it says so.
+- Instrumented: AWS (accounts, regions, keys, and denied optional reads such as `kms:ListGrants`), Azure
+  (subscriptions, vaults), GCP (projects, locations, now scanned one by one), Kubernetes (namespaces,
+  cert-manager), files (paths, files) and Certificate Transparency (domains). Other collectors are
+  complete or failed.
+- `scan --require-complete` exits 6 unless every source scanned its whole scope.
+- New change kind `source-partial` (page): a source that was complete now misses part of its scope.
+- The report opens its executive summary with what the scan covered; the sources table shows status and
+  coverage; unobserved assets and unverified findings are marked.
+- Metrics: `keycensus_source_complete`, `keycensus_source_coverage`, `keycensus_source_assets_not_observed`,
+  and a `KeycensusSourcePartial` alert rule. The compose smoke test now requires every demo source to be
+  complete.
+
+**FIPS claims backed by evidence**
+
+- The CBOM used to say `certificationLevel: fips140-3-l3` for any asset with `fips_validated: true`. It now
+  states a standard and level only from a CMVP certificate recorded in the source's new `fips_evidence`
+  block (standard, level, certificate, module, version, status ...). A vendor claim alone is `unknown`;
+  assets that disagree get no level on their shared algorithm component.
+- Each asset carries `fips_evidence` (`basis`: cmvp-certificate, configured or vendor-documentation), also
+  in the CBOM properties and the CSV.
+- Collector comments that stated vendor FIPS levels as fact were reworded.
+
+**Roadmap and qualification**
+
+- New [docs/ROADMAP.md](docs/ROADMAP.md): stages (planned, implemented, integration-tested,
+  field-validated) and an acceptance criterion for every item. The README's tick list is gone; history
+  stays in this changelog.
+- New [docs/QUALIFICATION.md](docs/QUALIFICATION.md): what each collector was tested against, its stage
+  and known limits. Corrects the README, which had ticked live Azure/GCP integration tests that have not
+  run yet.
+- CONTRIBUTING asks for qualification runs instead of collectors that now exist.
+- Helm chart 0.5.1, `appVersion` 0.12.0.
+
 ## 0.11.0 — 2026-11-04
 
 **Discovery: what nobody listed.**

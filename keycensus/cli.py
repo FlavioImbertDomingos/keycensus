@@ -59,6 +59,11 @@ def main():
               help="With --baseline: exit 3 if a NEW finding is at least this severe.")  # fmt: skip
 @click.option("--fail-on-page", is_flag=True,
               help="With --baseline: exit 5 on any page-worthy change (see `keycensus changes --kinds`).")  # fmt: skip
+@click.option("--carry-forward/--no-carry-forward", default=True, show_default=True,
+              help="With --baseline: keep assets a failed or partial source could not observe, marked not "
+                   "observed, so their findings stay open.")  # fmt: skip
+@click.option("--require-complete", is_flag=True,
+              help="Exit 6 unless every source scanned its whole scope (no failed or partial source).")  # fmt: skip
 @click.option("--notify/--no-notify", default=None,
               help="With --baseline: POST the classified changes to the configured webhook. "
                    "Defaults to on when the config has a notifications block.")  # fmt: skip
@@ -73,6 +78,8 @@ def scan(
     baseline_path,
     fail_on_new,
     fail_on_page,
+    carry_forward,
+    require_complete,
     notify,
     notify_dry_run,
     verbose,
@@ -90,10 +97,19 @@ def scan(
     except (ConfigError, FileNotFoundError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
 
+    baseline = None
+    if baseline_path:
+        from .diff import load_inventory_dict
+
+        try:
+            baseline = load_inventory_dict(baseline_path)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+
     started = time.perf_counter()
     if audit:
         audit.scan_started(config, policy_sha256(policy_path or config.policy))
-    inv = run_scan(config, policy)
+    inv = run_scan(config, policy, baseline=baseline if carry_forward else None)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
@@ -110,10 +126,21 @@ def scan(
         click.echo(
             f"apps:     {s['applications']} linked to {s['assets_linked']} assets, {s['assets_unlinked']} unlinked"
         )
-    click.echo(f"sources:  {s['sources'] - s['sources_failed']}/{s['sources']} ok")
+    complete = sum(1 for x in inv.sources if x.status == "complete")
+    click.echo(f"sources:  {complete}/{s['sources']} complete, {s['sources_partial']} partial, "
+               f"{s['sources_failed']} failed")  # fmt: skip
     for src in inv.sources:
-        status = f"ERROR {src.error}" if src.error else f"{len(src.assets)} assets"
+        status = f"FAILED {src.error}" if src.error else f"{len(src.assets) - src.carried} assets"
+        if src.status == "partial":
+            status = f"PARTIAL {status}: {src.coverage.describe()}"
+        if src.carried:
+            status += f"; {src.carried} carried forward, not observed"
+        if src.coverage.optional_denied:
+            status += f" (optional permissions denied: {', '.join(sorted(src.coverage.optional_denied))})"
         click.echo(f"  - {src.name} ({src.type}): {status}")
+    if s["findings_unverified"]:
+        click.echo(f"unverified: {s['findings_unverified']} finding(s) on {s['assets_unobserved']} asset(s) that "
+                   "could not be checked this scan; they stay open")  # fmt: skip
     click.echo("findings: " + ", ".join(f"{k}={v}" for k, v in s["findings_by_severity"].items()))
     ex = inv.executive()
     click.echo(f"quantum:  {ex['headline']}")
@@ -134,9 +161,9 @@ def scan(
 
         from .changes import PAGE, classify, summarize
         from .changes import render_text as render_changes
-        from .diff import diff_inventories, load_inventory_dict, render_json, render_markdown, render_text
+        from .diff import diff_inventories, render_json, render_markdown, render_text
 
-        d = diff_inventories(load_inventory_dict(baseline_path), inv)
+        d = diff_inventories(baseline, inv)
         classified = classify(d, config.change_urgency)
         (out / "diff.json").write_text(render_json(d))
         (out / "diff.md").write_text(render_markdown(d))
@@ -193,6 +220,10 @@ def scan(
             rc = rc or 1
     if s["sources_failed"]:
         rc = rc or 2
+    if require_complete and inv.status != "complete":
+        gaps = [f"{x.name} ({x.status})" for x in inv.sources if x.status != "complete"]
+        click.echo(f"\nfailing: scan is not complete: {', '.join(gaps)}", err=True)
+        rc = rc or 6
     if rc:
         sys.exit(rc)
 

@@ -60,7 +60,7 @@ from ..model import (
     STATE_UNKNOWN,
     CryptoAsset,
 )
-from .base import Collector
+from .base import Collector, gap_kind
 
 log = logging.getLogger(__name__)
 
@@ -195,6 +195,7 @@ class GcpKmsCollector(Collector):
         assets: list[CryptoAsset] = []
         failures: list[str] = []
         succeeded = 0
+        self.coverage.expect("projects", len(projects))
         for project in projects:
             opts = {k: v for k, v in self.opt.items() if k not in ("discover", "projects", "exclude_projects",
                                                                    "project_query")}  # fmt: skip
@@ -208,11 +209,22 @@ class GcpKmsCollector(Collector):
                 if "SERVICE_DISABLED" in str(exc) or "has not been used in project" in str(exc):
                     log.debug("[%s] %s: Cloud KMS API not enabled, no keys", self.name, project)
                     succeeded += 1
+                    self.coverage.ok("projects")  # the API is off: there can be no keys, so it was checked
                     continue
                 failures.append(f"{project}: {exc}")
+                self.coverage.gap("projects", project, exc, gap_kind(exc))
                 log.warning("[%s] project %s: %s", self.name, project, exc)
                 continue
             succeeded += 1
+            self.coverage.ok("projects")
+            child_locations = child.coverage.scopes.get("locations")
+            if child_locations:
+                loc = self.coverage.scope("locations")
+                loc.expected = (loc.expected or 0) + (child_locations.expected or 0)
+                loc.scanned += child_locations.scanned
+                loc.gaps += child_locations.gaps
+            for perm, n in child.coverage.optional_denied.items():
+                self.coverage.optional_denied[perm] = self.coverage.optional_denied.get(perm, 0) + n
             for a in found:
                 a.extra["project"] = project
             assets.extend(found)
@@ -231,17 +243,37 @@ class GcpKmsCollector(Collector):
         include_destroyed = bool(self.opt.get("include_destroyed", False))
         include_iam = bool(self.opt.get("include_iam", True))
         assets: list[CryptoAsset] = []
+        self.coverage.expect("locations", len(locations))
         for loc in locations:
-            for ring in self._paged(f"projects/{self.project}/locations/{loc}/keyRings", "keyRings"):
-                for key in self._paged(f"{ring['name']}/cryptoKeys", "cryptoKeys"):
-                    versions = self._paged(f"{key['name']}/cryptoKeyVersions", "cryptoKeyVersions")
-                    asset = self._asset(key, versions, ring["name"])
-                    if asset.state == STATE_DESTROYED and not include_destroyed:
-                        continue
-                    if include_iam:
-                        asset.used_by = self._consumers(key["name"])
-                    assets.append(asset)
+            scope = [f"projects:{self.project}", f"locations:{self.project}/{loc}"]
+            try:
+                found = self._collect_location(loc, include_destroyed, include_iam)
+            except RuntimeError as exc:
+                if len(locations) == 1:
+                    raise
+                self.coverage.gap("locations", f"{self.project}/{loc}", exc, gap_kind(exc))
+                log.warning("[%s] %s / %s: %s", self.name, self.project, loc, exc)
+                continue
+            self.coverage.ok("locations")
+            for a in found:
+                a.extra["coverage_scope"] = scope
+            assets.extend(found)
+        if len(locations) > 1 and not self.coverage.scope("locations").scanned:
+            raise RuntimeError(f"every location in {self.project} failed")
         return assets
+
+    def _collect_location(self, loc: str, include_destroyed: bool, include_iam: bool) -> list[CryptoAsset]:
+        out: list[CryptoAsset] = []
+        for ring in self._paged(f"projects/{self.project}/locations/{loc}/keyRings", "keyRings"):
+            for key in self._paged(f"{ring['name']}/cryptoKeys", "cryptoKeys"):
+                versions = self._paged(f"{key['name']}/cryptoKeyVersions", "cryptoKeyVersions")
+                asset = self._asset(key, versions, ring["name"])
+                if asset.state == STATE_DESTROYED and not include_destroyed:
+                    continue
+                if include_iam:
+                    asset.used_by = self._consumers(key["name"])
+                out.append(asset)
+        return out
 
     _USE_ROLES = ("cryptoKeyEncrypterDecrypter", "cryptoKeyEncrypter", "cryptoKeyDecrypter", "signerVerifier",
                   "signer", "verifier", "cryptoOperator", "admin", "owner", "editor")  # fmt: skip
@@ -250,6 +282,7 @@ class GcpKmsCollector(Collector):
         try:
             policy = self._get(f"{key_name}:getIamPolicy")
         except RuntimeError as exc:  # permission denied -> no consumer info, not a failure
+            self.coverage.optional("cloudkms.cryptoKeys.getIamPolicy")
             log.debug("[%s] getIamPolicy %s: %s", self.name, key_name, exc)
             return []
         out, seen = [], set()
@@ -310,7 +343,7 @@ class GcpKmsCollector(Collector):
             rotation_enabled=rotation,
             exportable=bool(primary.get("importJob")) or external,  # imported / externally held material
             hardware_backed=hsm,
-            fips_validated=hsm,  # Cloud HSM is FIPS 140-2 Level 3 validated
+            fips_validated=hsm,  # documented by Google as FIPS-validated HSMs; certificate via fips_evidence
             location=f"{name.split('/')[3]} {protection}",
             tags=labels,
             extra={

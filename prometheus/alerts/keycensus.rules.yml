@@ -33,6 +33,14 @@ groups:
           summary: "Inventory source {{ $labels.source }} ({{ $labels.type }}) is failing"
           description: "The inventory is incomplete while this source fails -- a PCI DSS 12.3.3 gap."
 
+      - alert: KeycensusSourcePartial
+        expr: keycensus_source_complete == 1
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Inventory source {{ $labels.source }} ({{ $labels.type }}) scans only part of its scope"
+          description: "Some accounts, regions, vaults, namespaces or paths could not be scanned (see keycensus_source_coverage). Assets there are carried forward as not observed and their findings are not re-verified."
+
       - alert: KeycensusCriticalFinding
         expr: keycensus_findings_by_severity{severity="critical"} > 0
         labels: {severity: critical}

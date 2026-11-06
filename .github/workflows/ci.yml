@@ -94,6 +94,8 @@ jobs:
           print(json.dumps(inv["summary"], indent=2))
           for s in inv["sources"]: print(s["name"], s["type"], s["assets"], s["error"] or "ok")
           assert not bad, f"sources failed: {bad}"
+          partial = [s["name"] for s in inv["sources"] if s.get("status") != "complete"]
+          assert not partial, f"sources not complete: {partial}"
           assert inv["summary"]["assets"] >= 30
           assert inv["summary"]["findings_by_severity"]["critical"] >= 1
           EOF
@@ -101,6 +103,7 @@ jobs:
         run: |
           curl -sf http://localhost:9742/cbom.json | python3 -c "import json,sys; b=json.load(sys.stdin); assert b['specVersion']=='1.6' and b['components']"
           curl -sf http://localhost:9742/metrics | grep -q '^keycensus_findings_by_severity'
+          curl -sf http://localhost:9742/metrics | grep -q '^keycensus_source_complete{.*} 2.0'
       - name: Logs on failure
         if: failure()
         run: docker compose logs

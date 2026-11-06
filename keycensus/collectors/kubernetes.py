@@ -46,7 +46,7 @@ from cryptography.hazmat.primitives import serialization
 
 from ..model import KIND_CERTIFICATE, STATE_ACTIVE, STATE_DEACTIVATED, CryptoAsset, utcnow
 from . import keyfiles
-from .base import Collector, CollectorError
+from .base import Collector, CollectorError, gap_kind
 from .pem_files import entries_to_assets, keystore_passwords
 from .x509util import certificate_fields, describe_public_key
 
@@ -120,21 +120,39 @@ class KubernetesCollector(Collector):
         except (config.ConfigException, FileNotFoundError) as exc:
             raise CollectorError(f"[{self.name}] no Kubernetes credentials: {exc}") from exc
 
-    def _list(self, all_ns, per_ns, **kw):
-        """Every item, across the configured namespaces, following `continue` tokens."""
+    def _list(self, all_ns, per_ns, scope: str | None = None, **kw):
+        """Every item, across the configured namespaces, following `continue` tokens. With `scope`, a namespace
+        that cannot be listed is recorded as a coverage gap and skipped; the cluster-wide list failing fails
+        the source."""
+        from kubernetes.client.exceptions import ApiException  # noqa: PLC0415
+
         targets = [(per_ns, {"namespace": ns}) for ns in self.namespaces] or [(all_ns, {})]
         for fn, args in targets:
             cont = None
-            while True:
-                page = fn(limit=500, _continue=cont, **args, **kw)
-                yield from page.items
-                cont = page.metadata._continue
-                if not cont:
-                    break
+            items: list = []
+            try:
+                while True:
+                    page = fn(limit=500, _continue=cont, **args, **kw)
+                    items += page.items
+                    cont = page.metadata._continue
+                    if not cont:
+                        break
+            except ApiException as exc:
+                if not (scope and args):
+                    raise
+                self.coverage.gap(scope, args["namespace"], f"HTTP {exc.status}: {exc.reason}", gap_kind(exc))
+                log.warning("[%s] %s in namespace %s: HTTP %s", self.name, scope, args["namespace"], exc.status)
+                continue
+            if scope and args:
+                self.coverage.ok(scope)
+            yield from items
 
     def _secrets(self, field_selector: str):
+        scope = "namespaces" if field_selector == "type=kubernetes.io/tls" else "namespaces-opaque"
+        if self.namespaces:
+            self.coverage.expect(scope, len(self.namespaces))
         return self._list(self.core.list_secret_for_all_namespaces, self.core.list_namespaced_secret,
-                          field_selector=field_selector)  # fmt: skip
+                          scope=scope, field_selector=field_selector)  # fmt: skip
 
     # -------------------------------------------------------------- secrets
     def _value(self, s, key: str) -> bytes | None:
@@ -149,7 +167,8 @@ class KubernetesCollector(Collector):
     def _base(self, s) -> tuple[str, str, dict[str, Any]]:
         ns, name = s.metadata.namespace, s.metadata.name
         ann = s.metadata.annotations or {}
-        extra: dict[str, Any] = {"namespace": ns, "secret": name, "secret_type": s.type, "cluster": self.cluster}
+        extra: dict[str, Any] = {"namespace": ns, "secret": name, "secret_type": s.type, "cluster": self.cluster,
+                                 "coverage_scope": [f"namespaces:{ns}", f"namespaces-opaque:{ns}"]}  # fmt: skip
         if ann.get("cert-manager.io/certificate-name"):
             extra["cert_manager_certificate"] = ann["cert-manager.io/certificate-name"]
         return f"k8s:{self.cluster}/{ns}/{name}", f"k8s:{ns}/secret/{name}", extra
@@ -240,6 +259,7 @@ class KubernetesCollector(Collector):
                         if ef.secret_ref and ef.secret_ref.name:
                             add(ns, ef.secret_ref.name, who, "k8s-env")
         except ApiException as exc:
+            self.coverage.optional("pods/list")
             log.info("[%s] pods not listed (%s): used_by will be empty", self.name, exc.status)
         try:
             for ing in self._list(self.net.list_ingress_for_all_namespaces, self.net.list_namespaced_ingress):
@@ -247,6 +267,7 @@ class KubernetesCollector(Collector):
                     if t.secret_name:
                         add(ing.metadata.namespace, t.secret_name, f"Ingress/{ing.metadata.name}", "k8s-ingress")
         except ApiException as exc:
+            self.coverage.optional("ingresses/list")
             log.info("[%s] ingresses not listed (%s)", self.name, exc.status)
         return out
 
@@ -274,6 +295,7 @@ class KubernetesCollector(Collector):
             if exc.status == 404:
                 log.info("[%s] cert-manager is not installed (no %s.%s)", self.name, plural, CM_GROUP)
             else:
+                self.coverage.gap("cert-manager", plural, f"HTTP {exc.status}: {exc.reason}", gap_kind(exc))
                 log.warning("[%s] cert-manager %s not listed: HTTP %s", self.name, plural, exc.status)
         return items
 
@@ -337,5 +359,6 @@ class KubernetesCollector(Collector):
             state=STATE_ACTIVE if not_after and not_after > utcnow() else STATE_DEACTIVATED,
             location=f"k8s:{ns}/certificate/{meta['name']}",
             extra={"namespace": ns, "cluster": self.cluster, "cert_manager": info, "sans": names,
+                   "coverage_scope": ["cert-manager:certificates", f"namespaces:{ns}"],
                    "from_cert_manager_spec": True, "secret": spec.get("secretName")},
         )  # fmt: skip
