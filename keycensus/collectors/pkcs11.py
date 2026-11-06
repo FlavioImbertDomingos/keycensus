@@ -71,7 +71,10 @@ class Pkcs11Collector(Collector):
         fips = self.opt.get("fips_validated")
 
         assets: list[CryptoAsset] = []
+        failed: list[str] = []
+        self.coverage.expect("tokens", 1)
         with token.open(user_pin=pin) if pin else token.open() as session:
+            self.coverage.ok("tokens")
             for cls, key_type_name in (
                 (ObjectClass.SECRET_KEY, "secret-key"),
                 (ObjectClass.PRIVATE_KEY, "private-key"),
@@ -79,9 +82,17 @@ class Pkcs11Collector(Collector):
             ):
                 for obj in session.get_objects({Attribute.CLASS: cls}):
                     try:
-                        assets.append(self._describe(obj, key_type_name, token, hardware, fips, KeyType, Attribute))
+                        a = self._describe(obj, key_type_name, token, hardware, fips, KeyType, Attribute)
                     except Exception as exc:  # noqa: BLE001 - one odd object shouldn't stop the scan
                         log.warning("[%s] skipping object: %s", self.name, exc)
+                        failed.append(f"{type(exc).__name__}: {exc}")
+                        continue
+                    self.coverage.ok("objects")
+                    # Which object failed cannot be named reliably, so a failure covers the whole token.
+                    a.extra["coverage_scope"] = [f"tokens:{token.label}", f"objects:{token.label}"]
+                    assets.append(a)
+        if failed:
+            self.coverage.gap("objects", str(token.label), f"{len(failed)} object(s) could not be read: {failed[0]}")
         return assets
 
     def _find_token(self, lib):

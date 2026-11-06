@@ -104,6 +104,28 @@ jobs:
           curl -sf http://localhost:9742/cbom.json | python3 -c "import json,sys; b=json.load(sys.stdin); assert b['specVersion']=='1.6' and b['components']"
           curl -sf http://localhost:9742/metrics | grep -q '^keycensus_findings_by_severity'
           curl -sf http://localhost:9742/metrics | grep -q '^keycensus_source_complete{.*} 2.0'
+      - name: doctor finds nothing to fix in the demo
+        run: docker exec keycensus keycensus doctor -c /config/keycensus.yml
+      - name: doctor names the Vault grant a narrower token lacks
+        run: |
+          sed '/^path "pki\/certs"/d' deploy/vault/keycensus-policy.hcl > narrow.hcl
+          docker cp narrow.hcl vault:/tmp/narrow.hcl
+          V="docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault vault"
+          $V policy write kc-narrow /tmp/narrow.hcl
+          T=$($V token create -policy=kc-narrow -field=token)
+          rc=0
+          docker exec -e VAULT_TOKEN="$T" keycensus keycensus doctor -c /config/keycensus.yml -s vault --json \
+            > doctor.json || rc=$?
+          cat doctor.json
+          test "$rc" = 6
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("doctor.json"))["sources"][0]
+          gaps = [p for p in d["problems"] if p["level"] == "gap"]
+          assert [(g["scope"], g["kind"], g["items"]) for g in gaps] == [("mounts", "denied", ["pki"])], gaps
+          assert gaps[0]["fix"]["file"] == "deploy/vault/keycensus-policy.hcl"
+          assert d["assets"] >= 7, d
+          EOF
       - name: Logs on failure
         if: failure()
         run: docker compose logs

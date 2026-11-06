@@ -1,5 +1,5 @@
-"""Command line: scan | link | diff | changes | notify | upload | serve | rules | collectors | controls | validate |
-keygen | verify | audit."""
+"""Command line: scan | doctor | link | diff | changes | notify | upload | serve | rules | collectors | controls |
+validate | keygen | verify | audit."""
 
 from __future__ import annotations
 
@@ -299,6 +299,46 @@ def validate(config_path):
     if bad:
         raise click.ClickException(f"unknown source types: {', '.join(s.type for s in bad)}")
     click.echo(f"policy: {config.policy}")
+
+
+@main.command()
+@click.option("-c", "--config", "config_path", type=click.Path(exists=True),
+              help="Sources YAML: run the sources now and explain the result.")  # fmt: skip
+@click.option("-i", "--inventory", "inventory_path", type=click.Path(exists=True),
+              help="An inventory.json from an earlier scan: explain it without scanning again.")  # fmt: skip
+@click.option("-s", "--source", "names", multiple=True, help="Only these sources (repeatable).")
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable output.")
+@click.option("-v", "--verbose", is_flag=True)
+def doctor(config_path, inventory_path, names, as_json, verbose):
+    """For each source: what it reached, what it missed and why, and the permission or file that fixes it.
+
+    Exits 2 if a source failed and 6 if one was partial, like `scan --require-complete`."""
+    import json
+
+    from .doctor import diagnose, exit_code, render_json, render_text, run_sources
+
+    _setup_logging(verbose)
+    if not verbose:  # every error is in the report; the log lines would only repeat them
+        logging.getLogger().setLevel(logging.CRITICAL)
+    if bool(config_path) == bool(inventory_path):
+        raise click.UsageError("give either --config (run the sources) or --inventory (explain an earlier scan)")
+    if inventory_path:
+        records = json.loads(Path(inventory_path).read_text()).get("sources") or []
+        if names:
+            records = [r for r in records if r.get("name") in names]
+    else:
+        try:
+            config = load(config_path)
+            records = run_sources(config, list(names) or None)
+        except (ConfigError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+    if not records:
+        raise click.ClickException("no sources to diagnose")
+    diagnoses = [diagnose(r) for r in records]
+    click.echo(json.dumps(render_json(diagnoses), indent=2) if as_json else render_text(diagnoses).rstrip())
+    rc = exit_code(diagnoses)
+    if rc:
+        sys.exit(rc)
 
 
 def _signing_key(config):

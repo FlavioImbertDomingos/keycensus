@@ -23,7 +23,8 @@
         exporters/  json · csv · cbom (CycloneDX 1.6 / 1.7) · html_report · prometheus
                   │
                   ▼
-        cli.py (scan / serve / rules / collectors / controls / validate)
+        cli.py (scan / doctor / serve / rules / collectors / controls / validate)
+        doctor.py (coverage and errors per source -> the grant or option that fixes them)
         serve.py (rescan loop + tiny HTTP server: /metrics /report.html /cbom.json ...)
 ```
 

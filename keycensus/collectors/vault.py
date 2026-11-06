@@ -38,7 +38,7 @@ from ..model import (
     STATE_ACTIVE,
     CryptoAsset,
 )
-from .base import Collector
+from .base import Collector, gap_kind
 from .x509util import certificate_fields
 
 log = logging.getLogger(__name__)
@@ -101,25 +101,44 @@ class VaultCollector(Collector):
 
     # ------------------------------------------------------------ collect
     def collect(self) -> list[CryptoAsset]:
+        """Coverage: `mounts` (each Transit or PKI mount listed or not) and `items` (each key or certificate
+        read or not). A denied mount does not fail the source; it makes it partial."""
         assets: list[CryptoAsset] = []
         policies = self._policies() if self.opt.get("include_policies", True) else {}
-        for mount in self._mounts("transit", self.opt.get("transit_mounts")):
-            for name in self._list(f"{mount}/keys"):
-                data = self._get(f"{mount}/keys/{name}")
-                if data:
+        mounts = [("transit", m) for m in self._mounts("transit", self.opt.get("transit_mounts"))]
+        mounts += [("pki", m) for m in self._mounts("pki", self.opt.get("pki_mounts"))]
+        self.coverage.expect("mounts", len(mounts))
+        items = self.coverage.scope("items")
+        items.expected = 0
+        for engine, mount in mounts:
+            try:
+                names = self._list(f"{mount}/keys" if engine == "transit" else f"{mount}/certs")
+            except (RuntimeError, requests.RequestException) as exc:
+                self.coverage.gap("mounts", mount, exc, gap_kind(exc))
+                continue
+            self.coverage.ok("mounts")
+            items.expected += len(names)
+            for name in names:
+                path = f"{mount}/keys/{name}" if engine == "transit" else f"{mount}/cert/{name}"
+                try:
+                    data = self._get(path)
+                except (RuntimeError, requests.RequestException) as exc:
+                    self.coverage.gap("items", path, exc, gap_kind(exc))
+                    continue
+                self.coverage.ok("items")
+                asset = None
+                if engine == "transit" and data:
                     asset = self._transit_asset(mount, name, data)
                     asset.used_by = _policy_consumers(policies, mount, name)
-                    assets.append(asset)
-        for mount in self._mounts("pki", self.opt.get("pki_mounts")):
-            for serial in self._list(f"{mount}/certs"):
-                data = self._get(f"{mount}/cert/{serial}")
-                pem = (data or {}).get("certificate")
-                if pem:
+                elif (data or {}).get("certificate"):
                     try:
-                        cert = x509.load_pem_x509_certificate(pem.encode())
+                        cert = x509.load_pem_x509_certificate(data["certificate"].encode())
                     except ValueError:
                         continue
-                    assets.append(self._pki_asset(mount, serial, cert, data))
+                    asset = self._pki_asset(mount, name, cert, data)
+                if asset:
+                    asset.extra["coverage_scope"] = [f"mounts:{mount}", f"items:{path}"]
+                    assets.append(asset)
         return assets
 
     def _policies(self) -> dict[str, str]:
@@ -128,6 +147,7 @@ class VaultCollector(Collector):
             names = self._list("sys/policies/acl")
         except RuntimeError as exc:
             log.debug("[%s] cannot list policies: %s", self.name, exc)
+            self.coverage.optional("list sys/policies/acl")
             return {}
         out = {}
         for n in names:
@@ -136,6 +156,7 @@ class VaultCollector(Collector):
             try:
                 data = self._get(f"sys/policies/acl/{n}")
             except RuntimeError:
+                self.coverage.optional("read sys/policies/acl/*")
                 continue
             if data and data.get("policy"):
                 out[n] = str(data["policy"])

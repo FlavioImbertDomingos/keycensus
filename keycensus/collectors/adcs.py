@@ -74,7 +74,7 @@ from typing import Any
 from cryptography import x509
 
 from ..model import STATE_DEACTIVATED, CryptoAsset
-from .base import Collector, CollectorError
+from .base import Collector, CollectorError, gap_kind
 from .x509util import certificate_fields
 
 log = logging.getLogger(__name__)
@@ -134,11 +134,38 @@ class AdcsCollector(Collector):
             raise CollectorError(f"[{self.name}] adcs needs 'ldap_url', 'exports', or both")
         assets: list[CryptoAsset] = []
         template_names: dict[str, str] = {}
+        exports = list(self.opt.get("exports") or [])
+        errors: list[Exception] = []
         if self.opt.get("ldap_url"):
-            ca_assets, template_names = self._collect_ldap()
-            assets.extend(ca_assets)
-        for spec in self.opt.get("exports") or []:
-            assets.extend(self._collect_export(spec, template_names))
+            host = str(self.opt["ldap_url"]).split("://")[-1].split("/")[0]
+            self.coverage.expect("directory", 1)
+            try:
+                ca_assets, template_names = self._collect_ldap()
+            except Exception as exc:  # noqa: BLE001 - the exports can still be read
+                if not exports:
+                    raise
+                errors.append(exc)
+                self.coverage.gap("directory", host, exc, gap_kind(exc))
+            else:
+                self.coverage.ok("directory")
+                for a in ca_assets:
+                    a.extra["coverage_scope"] = [f"directory:{host}"]
+                assets.extend(ca_assets)
+        if exports:
+            self.coverage.expect("exports", len(exports))
+        for spec in exports:
+            try:
+                assets.extend(self._collect_export(spec, template_names))
+            except CollectorError as exc:
+                errors.append(exc)
+                ca = spec.get("ca") if isinstance(spec, dict) else None
+                path = Path(str(spec.get("file") if isinstance(spec, dict) else spec))
+                kind = "unavailable" if "does not exist" in str(exc) else "error"
+                self.coverage.gap("exports", ca or path.stem, str(exc).removeprefix(f"[{self.name}] "), kind)
+            else:
+                self.coverage.ok("exports")
+        if errors and not any(s.scanned for s in self.coverage.scopes.values()):
+            raise errors[0]  # nothing at all could be read: failed, not partial
         return assets
 
     # ------------------------------------------------------------------ LDAP
@@ -356,10 +383,14 @@ class AdcsCollector(Collector):
                 # The account that enrolled holds the private key: the closest thing AD CS has to a consumer.
                 asset.used_by = [{"type": "principal", "id": fields["extra"]["requester"], "via": "enrollment"}]
             assets.append(asset)
+        for a in assets:
+            a.extra["coverage_scope"] = [f"exports:{ca}", f"exports:{ca}/rows"]
         if bad:
             log.warning("[%s] %s: %d row(s) had no parseable certificate", self.name, path, bad)
             if not assets and not skipped:
                 raise CollectorError(f"[{self.name}] {path}: none of {bad} row(s) had a parseable certificate")
+            # The certificates in those rows exist and were not inventoried: the export was read only in part.
+            self.coverage.gap("exports", f"{ca}/rows", f"{bad} row(s) in {path.name} had no parseable certificate")
         log.info("[%s] %s: %d certificate(s), %d skipped (expired/revoked/not issued)", self.name, path,
                  len(assets), skipped)  # fmt: skip
         return assets
