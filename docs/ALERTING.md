@@ -46,10 +46,13 @@ keycensus changes --kinds        # the whole vocabulary and its default urgency
 | `pq-key-exchange-lost` | An endpoint that negotiated a hybrid or ML-KEM key exchange (TLS 1.3 group or SSH kex) now negotiates a classical one. Usually a config rollback or a new load balancer; its traffic is open to harvest-now-decrypt-later again. The reverse, `pq-key-exchange-gained`, is ignored by default. |
 | `state-compromised` | A key was marked compromised. Everything it protects is suspect. |
 | `source-broken` | A source that worked now errors, so the inventory is incomplete — and every other alert on it is unreliable until it is fixed. |
+| `source-partial` | A source that scanned everything now misses part of its scope: an account, region, subscription, vault, namespace or path. Usually a revoked permission. What lives there is no longer being checked. |
 | `source-removed` | A source left the config; its assets are no longer watched by anything. |
 | `finding-new-critical`, `finding-new-high` | A new serious finding since the last scan. |
 
-Everything else is `digest` (new keys, consumer changes, certificate replacement, expiry moving in, application links) or `ignore` (rotation, strengthening, an endpoint gaining a post-quantum key exchange, resolved findings, metadata). `keycensus changes --kinds` prints all 32 kinds; 13 page by default.
+Everything else is `digest` (new keys, consumer changes, certificate replacement, expiry moving in, application links, assets that could not be checked this scan) or `ignore` (rotation, strengthening, an endpoint gaining a post-quantum key exchange, resolved findings, findings that could not be re-verified, metadata). `keycensus changes --kinds` prints all 35 kinds; 14 page by default.
+
+An asset that is missing because its source failed or was partly unreachable is never `asset-removed`: it is `asset-unverified`, and its findings `finding-unverified` instead of `finding-resolved`. The `source-broken` or `source-partial` page next to it says why. See [DIFF.md](DIFF.md#when-a-scan-could-not-look).
 
 ### Re-mapping it for your estate
 
@@ -73,6 +76,14 @@ keycensus_change_total{kind,urgency,source}       counter, monotonic — the one
 keycensus_changes_last_scan{kind,urgency}         gauge, the most recent diff only
 keycensus_last_change_timestamp_seconds           gauge
 keycensus_diffs_total                             counter — how many scans were compared at all
+```
+
+Per source, every scan also exports whether it was complete and how far it got:
+
+```
+keycensus_source_complete{source,type}               2 complete, 1 partial, 0 failed
+keycensus_source_coverage{source,scope,state}        expected (-1 if unknown), scanned, denied, unavailable, error
+keycensus_source_assets_not_observed{source}         assets carried forward because they could not be observed
 ```
 
 `increase(keycensus_change_total{urgency="page"}[15m]) > 0` is the whole alert. `keycensus_diffs_total` matters more than it looks: if it stops advancing, change alerting is blind, and `KeycensusNoChangeDetectionRunning` says so.

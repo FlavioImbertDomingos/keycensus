@@ -26,8 +26,9 @@ hsm_esns (`hsmESNs`, `esns`, `hsms`), exportable (`exportable`), state (`state`,
 
 nShield key types such as `RSAPrivate`, `ECDSAPrivate`, `ECDHPrivate`, `Rijndael` (AES),
 `DES3`, `HMACSHA256`, `Ed25519`, `MLDSA65` are normalised to keycensus algorithms. Every key in
-a Security World is HSM-protected, so `hardware_backed` is true; nShield modules are FIPS 140-3
-validated, so `fips_validated` is true unless you say otherwise.
+a Security World is HSM-protected, so `hardware_backed` is true. nShield modules are sold as FIPS
+validated, so `fips_validated` is true unless you say otherwise; which certificate and level apply
+depends on the model and firmware, so record them with `fips_evidence`.
 
 Verified against the bundled mock, not a live KeySafe 5 -- the API paths and field names come
 from the KeySafe 5 REST API reference and may need `keys_path` / `field_map` on your version.

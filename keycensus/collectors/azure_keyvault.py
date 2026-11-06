@@ -3,7 +3,7 @@
     - name: kv-payments
       type: azure-keyvault
       vault_url: https://payments-kv.vault.azure.net          # Key Vault
-      # vault_url: https://payments-hsm.managedhsm.azure.net  # Managed HSM (FIPS 140-3 L3, single-tenant)
+      # vault_url: https://payments-hsm.managedhsm.azure.net  # Managed HSM (single-tenant HSM pool)
       auth: default            # default (DefaultAzureCredential) | token (a bearer token from token_env/_file)
       token_env: AZURE_TOKEN   # only with auth: token -- CI, tests, `az account get-access-token`
       include_certificates: true
@@ -94,7 +94,7 @@ from ..model import (
     STATE_PRE_ACTIVATION,
     CryptoAsset,
 )
-from .base import Collector
+from .base import GAP_DENIED, Collector, gap_kind
 from .x509util import certificate_fields
 
 log = logging.getLogger(__name__)
@@ -292,6 +292,7 @@ class AzureKeyVaultCollector(Collector):
         try:
             vault = self._arm_get(f"{self.arm_endpoint}{rid}", {"api-version": self.arm_api_version})
         except RuntimeError as exc:
+            self.coverage.optional("Microsoft.KeyVault/vaults/read")
             log.info("[%s] cannot read the vault resource (%s); no consumers reported", self.name, exc)
             return []
 
@@ -303,6 +304,7 @@ class AzureKeyVaultCollector(Collector):
                     {"api-version": self.rbac_api_version, "$filter": "atScope()"},
                 )
             except RuntimeError as exc:
+                self.coverage.optional("Microsoft.Authorization/roleAssignments/read")
                 log.info("[%s] role assignments unreadable (%s); no consumers reported", self.name, exc)
                 return []
             out.extend(self._from_role_assignments(page.get("value") or []))
@@ -398,6 +400,7 @@ class AzureKeyVaultCollector(Collector):
                     if s.get("state", "Enabled") == "Enabled"]  # fmt: skip
         skip = {str(v).lower() for v in self.opt.get("exclude_vaults") or []}
         found = []
+        self.coverage.expect("subscriptions", len(subs))
         for sub in subs:
             try:
                 resources = self._arm_paged(f"{self.arm_endpoint}/subscriptions/{sub}/resources", {
@@ -407,8 +410,10 @@ class AzureKeyVaultCollector(Collector):
                 })  # fmt: skip
             except RuntimeError as exc:
                 self._failures.append(f"subscription {sub}: {exc}")
+                self.coverage.gap("subscriptions", sub, exc, gap_kind(exc))
                 log.warning("[%s] cannot list vaults in subscription %s: %s", self.name, sub, exc)
                 continue
+            self.coverage.ok("subscriptions")
             found += [(sub, r) for r in resources if str(r.get("name", "")).lower() not in skip]
         return found
 
@@ -417,6 +422,7 @@ class AzureKeyVaultCollector(Collector):
         hsm_suffix = str(self.opt.get("managed_hsm_dns_suffix", "managedhsm.azure.net"))
         assets: list[CryptoAsset] = []
         vaults = self._discover()
+        self.coverage.expect("vaults", len(vaults))
         succeeded = 0
         for sub, res in vaults:
             hsm = str(res.get("type", "")).lower().endswith("managedhsms")
@@ -428,13 +434,18 @@ class AzureKeyVaultCollector(Collector):
                 found = child.collect()
             except Exception as exc:  # noqa: BLE001 - one unreadable vault must not end the scan
                 self._failures.append(f"{res['name']}: {exc}")
+                self.coverage.gap("vaults", res["name"], exc, gap_kind(exc))
                 log.warning("[%s] vault %s: %s", self.name, res["name"], exc)
                 continue
             succeeded += 1
+            self.coverage.ok("vaults")
+            for perm, n in child.coverage.optional_denied.items():
+                self.coverage.optional_denied[perm] = self.coverage.optional_denied.get(perm, 0) + n
             rid = str(res.get("id", ""))
             rg = rid.split("/resourceGroups/", 1)[1].split("/", 1)[0] if "/resourceGroups/" in rid else None
             for a in found:
                 a.extra.update({"subscription_id": sub, "resource_group": rg, "vault": res["name"]})
+                a.extra["coverage_scope"] = [f"subscriptions:{sub}", f"vaults:{res['name']}"]
             assets.extend(found)
         log.info("[%s] %d vault(s) found, %d scanned, %d failure(s)", self.name, len(vaults), succeeded,
                  len(self._failures))  # fmt: skip
@@ -474,6 +485,11 @@ class AzureKeyVaultCollector(Collector):
                 log.info("[%s] %d consumer(s) at the vault scope", self.name, len(consumers))
                 for a in assets:
                     a.used_by = list(consumers)
+        if not self.opt.get("subscription_id"):  # a single configured vault, not one found by discovery
+            self.coverage.expect("vaults", 1)
+            self.coverage.ok("vaults")
+            for a in assets:
+                a.extra["coverage_scope"] = [f"vaults:{self.url}"]
         return assets
 
     # ------------------------------------------------------------ mapping
@@ -516,7 +532,7 @@ class AzureKeyVaultCollector(Collector):
             rotation_enabled=rotation,
             exportable=bool(attrs.get("exportable", False)),
             hardware_backed=hsm,
-            fips_validated=hsm,  # Key Vault HSM pool and Managed HSM are FIPS 140-3 Level 3 validated
+            fips_validated=hsm,  # documented by Microsoft as FIPS-validated HSMs; certificate via fips_evidence
             location=f"{'Managed HSM' if self.managed_hsm else 'Key Vault'} {urlparse(self.url).hostname}",
             tags={k: str(v) for k, v in (data.get("tags") or {}).items()},
             extra={
@@ -535,6 +551,8 @@ class AzureKeyVaultCollector(Collector):
         try:
             pol = self._get(f"keys/{name}/rotationpolicy")
         except RuntimeError as exc:  # 404 = no policy on this vault/key, 403 = not permitted
+            if gap_kind(exc) == GAP_DENIED:
+                self.coverage.optional("keys/rotationpolicy/read")
             log.debug("[%s] rotation policy for %s: %s", self.name, name, exc)
             return None
         for la in pol.get("lifetimeActions") or []:

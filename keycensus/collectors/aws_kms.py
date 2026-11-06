@@ -47,7 +47,7 @@ from ..model import (
     STATE_UNKNOWN,
     CryptoAsset,
 )
-from .base import Collector
+from .base import GAP_UNAVAILABLE, Collector, gap_kind
 
 log = logging.getLogger(__name__)
 
@@ -106,12 +106,20 @@ class AwsKmsCollector(Collector):
             session_kwargs["profile_name"] = self.opt["profile"]
         session = boto3.session.Session(**session_kwargs)
         if not self.opt.get("organization") and not self.opt.get("regions"):
-            return self._collect_one(self._client(session, "kms", self.opt.get("region")))
+            region = self.opt.get("region") or session.region_name or "default"
+            self.coverage.expect("regions", 1)
+            found = self._collect_one(self._client(session, "kms", self.opt.get("region")))
+            self.coverage.ok("regions")
+            for a in found:
+                a.extra["coverage_scope"] = [f"regions:{region}", *a.extra.get("coverage_scope", [])]
+            return found
 
         targets: list[tuple[str, object]] = []  # (account id, session)
         me = self._client(session, "sts", self.opt.get("region") or "us-east-1").get_caller_identity()["Account"]
         if self.opt.get("organization"):
-            for account_id in self._org_accounts(session):
+            accounts = self._org_accounts(session)
+            self.coverage.expect("accounts", len(accounts))
+            for account_id in accounts:
                 if account_id == me:
                     targets.append((me, session))
                     continue
@@ -119,25 +127,48 @@ class AwsKmsCollector(Collector):
                     targets.append((account_id, self._assume(session, account_id)))
                 except Exception as exc:  # noqa: BLE001 - one account must not end the scan
                     self._failures.append(f"{account_id}: {exc}")
+                    self.coverage.gap("accounts", account_id, exc, gap_kind(exc))
                     log.warning("[%s] cannot assume the member role in %s: %s", self.name, account_id, exc)
         else:
+            self.coverage.expect("accounts", 1)
             targets.append((me, session))
 
         assets: list[CryptoAsset] = []
         tried = succeeded = 0
+        pairs = 0
         for account_id, sess in targets:
-            for region in self._regions(sess):
+            regions, enabled_list = self._regions(sess)
+            pairs += len(regions)
+            account_ok = False
+            for region in regions:
                 tried += 1
                 try:
                     found = self._collect_one(self._client(sess, "kms", region))
                 except Exception as exc:  # noqa: BLE001 - a disabled region or a denied account is not fatal
+                    kind = gap_kind(exc)
+                    if kind == GAP_UNAVAILABLE and not enabled_list:
+                        # botocore's static region list includes opt-in regions this account never enabled:
+                        # no keys can exist there, so it is not a gap.
+                        pairs -= 1
+                        log.debug("[%s] %s / %s not enabled: %s", self.name, account_id, region, exc)
+                        continue
                     self._failures.append(f"{account_id}/{region}: {exc}")
+                    self.coverage.gap("regions", f"{account_id}/{region}", exc, kind)
                     log.warning("[%s] %s / %s: %s", self.name, account_id, region, exc)
                     continue
                 succeeded += 1
+                account_ok = True
+                self.coverage.ok("regions")
                 for a in found:
                     a.extra.update({"account_id": account_id, "region": region})
+                    a.extra["coverage_scope"] = [f"accounts:{account_id}", f"regions:{account_id}/{region}",
+                                                 *a.extra.get("coverage_scope", [])]  # fmt: skip
                 assets.extend(found)
+            if account_ok:
+                self.coverage.ok("accounts")
+            elif regions:
+                self.coverage.gap("accounts", account_id, "no region in this account could be scanned")
+        self.coverage.expect("regions", pairs)
         if not succeeded and self._failures:
             raise RuntimeError(f"every account / region failed ({len(self._failures)}); first: {self._failures[0]}")
         log.info("[%s] %d account(s), %d account-region pair(s), %d failure(s)", self.name, len(targets), tried,
@@ -177,22 +208,24 @@ class AwsKmsCollector(Collector):
         return boto3.session.Session(aws_access_key_id=c["AccessKeyId"], aws_secret_access_key=c["SecretAccessKey"],
                                      aws_session_token=c["SessionToken"])  # fmt: skip
 
-    def _regions(self, session) -> list[str]:
+    def _regions(self, session) -> tuple[list[str], bool]:
+        """(regions, True when the list is known to be enabled regions, not botocore's static list)."""
         regions = self.opt.get("regions")
         if not regions:
-            return [self.opt.get("region") or session.region_name or "us-east-1"]
+            return [self.opt.get("region") or session.region_name or "us-east-1"], True
         if isinstance(regions, list):
-            return [str(r) for r in regions]
+            return [str(r) for r in regions], True
         if str(regions).lower() != "all":
-            return [str(regions)]
+            return [str(regions)], True
         try:
             ec2 = self._client(session, "ec2", self.opt.get("region") or "us-east-1")
             found = [r["RegionName"] for r in ec2.describe_regions(AllRegions=False)["Regions"]]
             if found:
-                return sorted(found)
+                return sorted(found), True
         except Exception as exc:  # noqa: BLE001 - fall back to the static list
+            self.coverage.optional("ec2:DescribeRegions")
             log.info("[%s] ec2:DescribeRegions failed (%s); using every KMS region botocore knows", self.name, exc)
-        return sorted(session.get_available_regions("kms"))
+        return sorted(session.get_available_regions("kms")), False
 
     def _collect_one(self, kms) -> list[CryptoAsset]:
         aliases: dict[str, list[str]] = {}
@@ -205,9 +238,18 @@ class AwsKmsCollector(Collector):
         include_pending = bool(self.opt.get("include_pending_deletion", True))
         self.include_consumers = bool(self.opt.get("include_consumers", True))
         assets: list[CryptoAsset] = []
+        keys = self.coverage.scope("keys")
         for page in kms.get_paginator("list_keys").paginate():
             for entry in page.get("Keys", []):
-                md = kms.describe_key(KeyId=entry["KeyId"])["KeyMetadata"]
+                keys.expected = (keys.expected or 0) + 1
+                try:
+                    md = kms.describe_key(KeyId=entry["KeyId"])["KeyMetadata"]
+                except Exception as exc:  # noqa: BLE001 - one key's policy can deny DescribeKey
+                    arn = entry.get("KeyArn") or entry["KeyId"]
+                    self.coverage.gap("keys", arn, exc, gap_kind(exc))
+                    log.warning("[%s] describe_key %s: %s", self.name, arn, exc)
+                    continue
+                keys.scanned += 1
                 if md.get("KeyManager") == "AWS" and not include_aws:
                     continue
                 if md.get("KeyState") == "PendingDeletion" and not include_pending:
@@ -230,6 +272,7 @@ class AwsKmsCollector(Collector):
                 for g in page.get("Grants", []):
                     add("principal", g.get("GranteePrincipal", ""), "grant:" + (g.get("Name") or "unnamed"))
         except Exception as exc:  # noqa: BLE001 - kms:ListGrants denied
+            self.coverage.optional("kms:ListGrants")
             log.debug("[%s] list_grants %s: %s", self.name, key_id, exc)
         try:
             policy = json.loads(kms.get_key_policy(KeyId=key_id, PolicyName="default").get("Policy") or "{}")
@@ -245,6 +288,7 @@ class AwsKmsCollector(Collector):
                 for svc in [services] if isinstance(services, str) else (services or []):
                     add("service", svc, "key-policy:" + str(st.get("Sid") or "unnamed"))
         except Exception as exc:  # noqa: BLE001 - kms:GetKeyPolicy denied
+            self.coverage.optional("kms:GetKeyPolicy")
             log.debug("[%s] get_key_policy %s: %s", self.name, key_id, exc)
         return out
 
@@ -262,6 +306,7 @@ class AwsKmsCollector(Collector):
                 rotation = bool(r.get("KeyRotationEnabled"))
                 rotation_period = r.get("RotationPeriodInDays")
             except Exception as exc:  # noqa: BLE001 - permission or unsupported key store
+                self.coverage.optional("kms:GetKeyRotationStatus")
                 log.debug("[%s] rotation status for %s: %s", self.name, md["KeyId"], exc)
 
         tags = {}
@@ -269,11 +314,12 @@ class AwsKmsCollector(Collector):
             for t in kms.list_resource_tags(KeyId=md["KeyId"]).get("Tags", []):
                 tags[t["TagKey"]] = t["TagValue"]
         except Exception:  # noqa: BLE001
-            pass
+            self.coverage.optional("kms:ListResourceTags")
 
         origin = md.get("Origin", "AWS_KMS")
         hardware = origin in ("AWS_CLOUDHSM",) or bool(md.get("CustomKeyStoreId"))
-        # AWS KMS itself runs on FIPS 140-3 L3 validated HSMs; treat as hardware-backed unless external.
+        # AWS documents KMS keys as generated and used only inside its HSMs: hardware-backed unless external.
+        # Which FIPS certificate covers them is not in the API; see fips_evidence.
         if origin == "AWS_KMS":
             hardware = True
         created = md.get("CreationDate")
@@ -305,6 +351,7 @@ class AwsKmsCollector(Collector):
             location=f"{md.get('Arn', '').split(':')[3] if md.get('Arn') else ''} {origin}",
             tags=tags,
             extra={
+                "coverage_scope": [f"keys:{md['Arn']}"],
                 "key_id": md["KeyId"],
                 "aliases": names,
                 "key_spec": spec,

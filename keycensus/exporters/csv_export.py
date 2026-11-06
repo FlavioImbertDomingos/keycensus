@@ -7,7 +7,8 @@ from ..model import Inventory
 COLUMNS = [
     "id", "source", "source_type", "kind", "name", "algorithm", "key_size", "curve", "key_type",
     "purposes", "created", "last_rotated", "expires", "age_days", "days_until_expiry", "state",
-    "rotation_enabled", "exportable", "hardware_backed", "fips_validated", "classical_bits",
+    "rotation_enabled", "exportable", "hardware_backed", "fips_validated", "fips_standard", "fips_level",
+    "fips_certificate", "classical_bits", "observed", "last_observed",
     "quantum_class", "signature_hash", "subject", "issuer", "protocol_version", "cipher_suites",
     "key_exchange",
     "location", "applications", "used_by", "findings",
@@ -31,5 +32,7 @@ def render(inv: Inventory) -> str:
         d["applications"] = " ".join(a.applications)
         d["used_by"] = " ".join(u.get("id", "") for u in a.used_by)
         d["findings"] = " ".join(by_asset.get(a.id, []))
+        for k in ("standard", "level", "certificate"):
+            d[f"fips_{k}"] = (a.fips_evidence or {}).get(k)
         w.writerow(d)
     return buf.getvalue()

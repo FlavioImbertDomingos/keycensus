@@ -35,6 +35,22 @@ keycensus scan -c keycensus.yml -o out --baseline last/inventory.json
 | `scan` | *(always)* | 2 | a source failed to scan |
 | `scan` / `diff` | `--fail-on-new high` | 3 | a finding ≥ high exists **that was not in the baseline** (drift gate: existing debt is tolerated, new debt is not) |
 | `diff` | `--fail-on-change` | 4 | anything at all changed (change-freeze gate) |
+| `scan` | `--fail-on-page` | 5 | a page-worthy change since the baseline |
+| `scan` | `--require-complete` | 6 | a source failed or did not scan its whole scope (coverage gate) |
+
+### When a scan could not look
+
+An asset that was in the baseline and is missing now is **removed** only if its source scanned the part
+that holds it. If the source failed, or was partial and the asset sat in the part it missed (a denied
+region, a forbidden namespace, an unreadable path), the asset is **unverified** instead, and so are its
+findings: neither removed nor resolved. `diff.json` lists them under `assets_unverified` and
+`findings_unverified`, and `changes` classifies them as `asset-unverified` (digest) next to the
+`source-broken` or `source-partial` page that explains why.
+
+`scan --baseline` goes one step further and carries those assets forward into the new inventory with
+`observed: false` and the time they were last seen, so the report, the CBOM and the next diff still have
+them and their findings stay open, marked "not re-verified". `--no-carry-forward` turns that off.
+`keycensus serve` always carries forward from its previous scan.
 
 `--fail-on-new` is the one most teams want in a pipeline: it lets you adopt keycensus on an estate
 with known problems and still block *new* ones.

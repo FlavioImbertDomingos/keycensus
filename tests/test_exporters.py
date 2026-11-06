@@ -57,7 +57,7 @@ def test_cbom_links_and_findings(sample_inventory):
     alg = next(c for c in bom["components"] if c["bom-ref"] == "alg:AES-256")
     props = alg["cryptoProperties"]["algorithmProperties"]
     assert props["nistQuantumSecurityLevel"] == 5 and props["classicalSecurityLevel"] == 256
-    assert props["certificationLevel"] == ["fips140-3-l3"]
+    assert props["certificationLevel"] == ["unknown"]  # FIPS claimed, no certificate: no level asserted
 
 
 def test_json_and_csv(sample_inventory):

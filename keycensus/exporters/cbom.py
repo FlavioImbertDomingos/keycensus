@@ -33,7 +33,16 @@ import uuid
 from .. import __version__
 from ..analysis import strength
 from ..analysis.controls import describe
-from ..model import KIND_ALGORITHM, KIND_CERTIFICATE, KIND_KEY, KIND_PROTOCOL, CryptoAsset, Inventory, iso
+from ..model import (
+    KIND_ALGORITHM,
+    KIND_CERTIFICATE,
+    KIND_KEY,
+    KIND_PROTOCOL,
+    CryptoAsset,
+    Inventory,
+    fips_level,
+    iso,
+)
 
 _CDX_STATES = {"pre-activation", "active", "suspended", "deactivated", "compromised", "destroyed"}
 SEVERITY_TO_CDX = {
@@ -68,8 +77,6 @@ def _algorithm_component(asset: CryptoAsset) -> dict:
         props["classicalSecurityLevel"] = s.classical_bits
     if s.nist_quantum_level is not None:
         props["nistQuantumSecurityLevel"] = s.nist_quantum_level
-    if asset.fips_validated:
-        props["certificationLevel"] = ["fips140-3-l3"]
     return {
         "type": "cryptographic-asset",
         "bom-ref": _alg_ref(asset),
@@ -205,6 +212,11 @@ def _props(asset: CryptoAsset) -> list[dict]:
         ("exportable", asset.exportable),
         ("hardwareBacked", asset.hardware_backed),
         ("fipsValidated", asset.fips_validated),
+        ("fipsEvidence", (asset.fips_evidence or {}).get("basis")),
+        ("fipsStandard", (asset.fips_evidence or {}).get("standard")),
+        ("fipsLevel", (asset.fips_evidence or {}).get("level")),
+        ("fipsCertificate", (asset.fips_evidence or {}).get("certificate")),
+        ("fipsModule", (asset.fips_evidence or {}).get("module")),
         ("signatureHash", asset.signature_hash),
         ("selfSigned", asset.self_signed),
     ):
@@ -266,11 +278,32 @@ def _signature_alg_component(asset: CryptoAsset) -> dict | None:
     }
 
 
-def build(inv: Inventory) -> dict:
-    components: dict[str, dict] = {}
+def _certification_levels(inv: Inventory) -> dict[str, list[str]]:
+    """certificationLevel per shared algorithm component. A level appears only when every key and certificate
+    using that algorithm has certificate-backed FIPS evidence for that same level; a FIPS claim without a
+    certificate is "unknown". Mixed modules get no level at all rather than a misleading one."""
+    seen: dict[str, set] = {}
     for a in inv.assets:
         if a.kind in (KIND_KEY, KIND_CERTIFICATE):
-            components.setdefault(_alg_ref(a), _algorithm_component(a))
+            level = fips_level(a.fips_evidence) or ("unknown" if a.fips_validated else None)
+            seen.setdefault(_alg_ref(a), set()).add(level)
+    out = {}
+    for ref, levels in seen.items():
+        if len(levels) == 1 and None not in levels:
+            out[ref] = [next(iter(levels))]
+    return out
+
+
+def build(inv: Inventory) -> dict:
+    components: dict[str, dict] = {}
+    levels = _certification_levels(inv)
+    for a in inv.assets:
+        if a.kind in (KIND_KEY, KIND_CERTIFICATE):
+            if _alg_ref(a) not in components:
+                comp = _algorithm_component(a)
+                if _alg_ref(a) in levels:
+                    comp["cryptoProperties"]["algorithmProperties"]["certificationLevel"] = levels[_alg_ref(a)]
+                components[_alg_ref(a)] = comp
         if a.kind == KIND_KEY:
             components[a.id] = _key_component(a)
         elif a.kind == KIND_CERTIFICATE:

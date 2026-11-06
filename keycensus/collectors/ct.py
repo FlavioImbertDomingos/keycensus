@@ -43,7 +43,7 @@ from cryptography import x509
 
 from .. import secrets
 from ..model import CryptoAsset, utcnow
-from .base import Collector, CollectorError
+from .base import Collector, CollectorError, gap_kind
 from .x509util import certificate_fields
 
 log = logging.getLogger(__name__)
@@ -84,9 +84,20 @@ class CtCollector(Collector):
         seen: set[str] = set()
         assets: list[CryptoAsset] = []
         fetch = self._certspotter if provider == "certspotter" else self._crtsh
+        self.coverage.expect("domains", len(domains))
         for domain in domains:
             domain = str(domain).strip().lstrip("*.").lower()
-            for asset in fetch(domain):
+            try:
+                found = list(fetch(domain))
+            except CollectorError as exc:
+                if len(domains) == 1:
+                    raise
+                self.coverage.gap("domains", domain, exc, gap_kind(exc))
+                log.warning("[%s] %s: %s", self.name, domain, exc)
+                continue
+            self.coverage.ok("domains")
+            for asset in found:
+                asset.extra["coverage_scope"] = [f"domains:{domain}"]
                 if asset.native_id in seen:
                     continue  # a SAN covers two configured domains
                 seen.add(asset.native_id)

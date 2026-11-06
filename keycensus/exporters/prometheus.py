@@ -115,6 +115,28 @@ class InventoryCollector:
         yield src_assets
         yield src_dur
 
+        # complete=2, partial=1, failed=0: alert on `< 2` to catch both an outage and lost coverage
+        src_complete = GaugeMetricFamily(f"{NS}_source_complete",
+                                         "2 complete, 1 partial (part of the scope not scanned), 0 failed",
+                                         labels=["source", "type"])  # fmt: skip
+        cov = GaugeMetricFamily(f"{NS}_source_coverage", "Items per scope: expected (-1 if unknown), scanned, "
+                                "denied, unavailable, error", labels=["source", "scope", "state"])  # fmt: skip
+        unobserved = GaugeMetricFamily(f"{NS}_source_assets_not_observed",
+                                       "Assets carried forward from the last scan because they could not be observed",
+                                       labels=["source"])  # fmt: skip
+        for s in inv.sources:
+            src_complete.add_metric([s.name, s.type], {"complete": 2.0, "partial": 1.0}.get(s.status, 0.0))
+            unobserved.add_metric([s.name], float(s.carried))
+            for scope, sc in s.coverage.scopes.items():
+                d = sc.to_dict()
+                cov.add_metric([s.name, scope, "expected"], float(-1 if sc.expected is None else sc.expected))
+                cov.add_metric([s.name, scope, "scanned"], float(sc.scanned))
+                for state in ("denied", "unavailable", "error"):
+                    cov.add_metric([s.name, scope, state], float(d.get(state, 0)))
+        yield src_complete
+        yield cov
+        yield unobserved
+
         if inv.applications:
             from ..linking import impact
 

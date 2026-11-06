@@ -25,7 +25,7 @@ def test_scan_exit_2_when_source_fails(tmp_path):
     cfg.write_text("sources:\n  - name: v\n    type: vault\n    url: http://127.0.0.1:1\n    token: x\n")
     r = CliRunner().invoke(main, ["scan", "-c", str(cfg), "-o", str(tmp_path / "o"), "-f", "json"])
     assert r.exit_code == 2
-    assert "ERROR" in r.output
+    assert "FAILED" in r.output
 
 
 def test_validate_and_listings(tmp_path):

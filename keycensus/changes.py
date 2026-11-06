@@ -69,6 +69,7 @@ DEFAULT_URGENCY: dict[str, str] = {
     # --- the estate lost something ---------------------------------------
     "asset-removed": PAGE,
     "source-broken": PAGE,
+    "source-partial": PAGE,
     "source-removed": PAGE,
     # --- new problems ----------------------------------------------------
     "finding-new-critical": PAGE,
@@ -77,6 +78,7 @@ DEFAULT_URGENCY: dict[str, str] = {
     # --- real, but not urgent --------------------------------------------
     "asset-added": DIGEST,
     "asset-retired": DIGEST,
+    "asset-unverified": DIGEST,
     "state-changed": DIGEST,
     "algorithm-changed": DIGEST,
     "certificate-replaced": DIGEST,
@@ -92,6 +94,7 @@ DEFAULT_URGENCY: dict[str, str] = {
     "hardware-backing-gained": IGNORE,
     "rotation-enabled": IGNORE,
     "finding-resolved": IGNORE,
+    "finding-unverified": IGNORE,
     "source-fixed": IGNORE,
     "metadata-changed": IGNORE,
 }
@@ -117,6 +120,8 @@ WHY: dict[str, str] = {
     "source stopped reporting it -- both are worth knowing within minutes.",
     "source-broken": "A source that worked now errors, so the inventory is incomplete and every other alert on "
     "it is unreliable.",
+    "source-partial": "A source that scanned everything now misses part of its scope (an account, a region, a "
+    "subscription, a namespace): usually a revoked permission. Assets there are no longer being checked.",
     "source-removed": "A source disappeared from the configuration; its assets are no longer being watched.",
     "finding-new-critical": "A new critical finding -- typically an expired certificate in use or a broken algorithm.",
     "finding-new-high": "A new high-severity finding since the last scan.",
@@ -290,7 +295,29 @@ def classify(diff: Diff, urgency: dict[str, str] | None = None) -> list[Change]:
             severity=f.get("severity"),
         )
 
+    for a in diff.unverified:
+        emit(
+            "asset-unverified",
+            f"{a.get('source')}/{a.get('name')} could not be checked this scan (source failed or partly "
+            "unreachable); status unknown, not removed",
+            asset_id=a.get("id", ""),
+            asset_name=a.get("name", ""),
+            source=a.get("source", ""),
+            asset_kind=a.get("kind", ""),
+        )
+    for f in diff.findings_unverified:
+        emit(
+            "finding-unverified",
+            f"not re-verified on {f.get('asset_name')}: {f.get('title')} (still open)",
+            asset_id=f.get("asset_id", ""),
+            asset_name=f.get("asset_name", ""),
+            source=f.get("source", ""),
+            severity=f.get("severity"),
+        )
+
     # --- sources ---------------------------------------------------------
+    for s in diff.sources_partial:
+        emit("source-partial", f"source {s.get('name')} is now partial: {s.get('coverage')}", source=s.get("name", ""))
     for s in diff.sources_broken:
         emit("source-broken", f"source {s.get('name')} is failing: {s.get('error')}", source=s.get("name", ""))
     for n in diff.sources_removed:

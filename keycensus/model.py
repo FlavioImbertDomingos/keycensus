@@ -83,7 +83,10 @@ class CryptoAsset:
     rotation_enabled: bool | None = None  # automatic rotation configured?
     exportable: bool | None = None
     hardware_backed: bool | None = None
+    # "the key lives in a module documented as FIPS validated". Which standard, which level and which
+    # certificate is in fips_evidence; nothing asserts a level without a certificate (see fips_level()).
     fips_validated: bool | None = None
+    fips_evidence: dict[str, Any] | None = None
     location: str = ""  # where it lives, for humans (slot/token, mount path, region)
     # certificate-only
     subject: str | None = None
@@ -108,6 +111,11 @@ class CryptoAsset:
     used_by: list[dict[str, str]] = field(default_factory=list)
     # applications linked to this asset (names), filled by keycensus.linking
     applications: list[str] = field(default_factory=list)
+    # Was the asset seen in this scan? False when it was carried forward from the previous scan because its
+    # source failed or the part of the source that holds it could not be scanned: it still exists as far as
+    # anyone knows, but nobody has looked. last_observed is when it was last actually seen.
+    observed: bool = True
+    last_observed: datetime | None = None
 
     # ------------------------------------------------------------ identity
     @property
@@ -146,7 +154,7 @@ class CryptoAsset:
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["id"] = self.id
-        for k in ("created", "last_rotated", "expires"):
+        for k in ("created", "last_rotated", "expires", "last_observed"):
             d[k] = iso(getattr(self, k))
         d["age_days"] = round(self.age_days, 1) if self.age_days is not None else None
         d["days_until_expiry"] = round(self.days_until_expiry, 1) if self.days_until_expiry is not None else None
@@ -158,7 +166,7 @@ class CryptoAsset:
         """Inverse of to_dict() (for re-linking / re-reporting a saved inventory.json)."""
         names = {f.name for f in cls.__dataclass_fields__.values()}
         kw = {k: v for k, v in d.items() if k in names}
-        for k in ("created", "last_rotated", "expires"):
+        for k in ("created", "last_rotated", "expires", "last_observed"):
             v = kw.get(k)
             if isinstance(v, str):
                 kw[k] = datetime.fromisoformat(v.replace("Z", "+00:00"))
@@ -181,6 +189,9 @@ class Finding:
     source: str
     controls: list[str] = field(default_factory=list)  # e.g. ["PCI-DSS-4.0:3.7.4"]
     references: list[str] = field(default_factory=list)
+    # False when the asset was not observed in this scan (carried forward): the finding is still open, but
+    # could not be re-verified. It is never resolved by a scan that did not look.
+    verified: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -215,15 +226,157 @@ class Application:
         return d
 
 
+SCAN_COMPLETE, SCAN_PARTIAL, SCAN_FAILED = "complete", "partial", "failed"
+GAP_DENIED, GAP_UNAVAILABLE, GAP_ERROR = "denied", "unavailable", "error"
+
+
+@dataclass
+class ScopeCoverage:
+    """One kind of scope inside a source (accounts, regions, subscriptions, namespaces ...)."""
+
+    expected: int | None = None  # None: the total could not be discovered, so no percentage is claimed
+    scanned: int = 0
+    gaps: list[dict[str, str]] = field(default_factory=list)  # {"id", "kind": denied|unavailable|error, "reason"}
+
+    def to_dict(self) -> dict[str, Any]:
+        by_kind: dict[str, int] = {}
+        for g in self.gaps:
+            by_kind[g["kind"]] = by_kind.get(g["kind"], 0) + 1
+        return {"expected": self.expected, "scanned": self.scanned, **by_kind, "gaps": self.gaps}
+
+
+@dataclass
+class Coverage:
+    """What a source looked at, and what it could not. A source with any gap is `partial`."""
+
+    scopes: dict[str, ScopeCoverage] = field(default_factory=dict)
+    # optional permissions that were denied: the scan is complete, but some fields are missing
+    optional_denied: dict[str, int] = field(default_factory=dict)  # "kms:ListGrants" -> how many times
+
+    def scope(self, name: str) -> ScopeCoverage:
+        return self.scopes.setdefault(name, ScopeCoverage())
+
+    def expect(self, scope: str, n: int | None) -> None:
+        self.scope(scope).expected = n
+
+    def ok(self, scope: str, n: int = 1) -> None:
+        self.scope(scope).scanned += n
+
+    def gap(self, scope: str, item_id: str, reason: str, kind: str = GAP_ERROR) -> None:
+        self.scope(scope).gaps.append({"id": f"{scope}:{item_id}", "kind": kind, "reason": str(reason)[:300]})
+
+    def optional(self, permission: str) -> None:
+        self.optional_denied[permission] = self.optional_denied.get(permission, 0) + 1
+
+    @property
+    def gap_ids(self) -> set[str]:
+        return {g["id"] for s in self.scopes.values() for g in s.gaps}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"scopes": {k: v.to_dict() for k, v in self.scopes.items()}, "optional_denied": self.optional_denied}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> Coverage:
+        c = cls()
+        for name, s in ((d or {}).get("scopes") or {}).items():
+            c.scopes[name] = ScopeCoverage(s.get("expected"), int(s.get("scanned") or 0), list(s.get("gaps") or []))
+        c.optional_denied = dict((d or {}).get("optional_denied") or {})
+        return c
+
+    def describe(self) -> str:
+        """'42 accounts expected, 39 scanned, 2 denied, 1 unavailable; regions: 17 scanned'"""
+        parts = []
+        for name, s in self.scopes.items():
+            kinds = s.to_dict()
+            bits = [f"{s.expected} expected" if s.expected is not None else "total unknown", f"{s.scanned} scanned"]
+            bits += [f"{kinds[k]} {k}" for k in (GAP_DENIED, GAP_UNAVAILABLE, GAP_ERROR) if kinds.get(k)]
+            parts.append(f"{name}: {', '.join(bits)}")
+        return "; ".join(parts)
+
+
+FIPS_STANDARDS = {"FIPS 140-2": "2", "FIPS 140-3": "3"}
+FIPS_FIELDS = ("standard", "level", "certificate", "module", "version", "operational_environment", "status",
+               "validated_on", "sunset", "url")  # fmt: skip
+
+
+def normalise_fips_evidence(raw: dict[str, Any], owner: str = "fips_evidence") -> dict[str, Any]:
+    """Check a configured FIPS evidence block. Standard, level and certificate together make it
+    certificate-backed; anything less is recorded but never turned into a level."""
+    ev = {k: raw[k] for k in FIPS_FIELDS if raw.get(k) not in (None, "")}
+    unknown = set(raw) - set(FIPS_FIELDS)
+    if unknown:
+        raise ValueError(f"{owner}: unknown field(s) {sorted(unknown)}; expected {', '.join(FIPS_FIELDS)}")
+    if "standard" in ev:
+        std = str(ev["standard"]).upper().replace("FIPS140", "FIPS 140").replace("FIPS-140", "FIPS 140")
+        if std not in FIPS_STANDARDS:
+            raise ValueError(f"{owner}: standard must be FIPS 140-2 or FIPS 140-3, not {ev['standard']!r}")
+        ev["standard"] = std
+    if "level" in ev:
+        if str(ev["level"]) not in ("1", "2", "3", "4"):
+            raise ValueError(f"{owner}: level must be 1 to 4, not {ev['level']!r}")
+        ev["level"] = int(ev["level"])
+    if "certificate" in ev:
+        cert = str(ev["certificate"]).lstrip("#")
+        if not cert.isdigit():
+            raise ValueError(f"{owner}: certificate is the CMVP certificate number, e.g. 4884")
+        ev["certificate"] = cert
+        ev.setdefault(
+            "url", f"https://csrc.nist.gov/projects/cryptographic-module-validation-program/certificate/{cert}"
+        )
+    ev["basis"] = "cmvp-certificate" if {"standard", "level", "certificate"} <= set(ev) else "configured"
+    return ev
+
+
+def fips_level(evidence: dict[str, Any] | None) -> str | None:
+    """CycloneDX certificationLevel (fips140-3-l3) or None. Only from certificate-backed evidence."""
+    if not evidence or evidence.get("basis") != "cmvp-certificate":
+        return None
+    return f"fips140-{FIPS_STANDARDS[evidence['standard']]}-l{evidence['level']}"
+
+
+def asset_in_gap(asset: dict[str, Any] | CryptoAsset, gap_ids: set[str]) -> bool:
+    """Could this asset have been in a part of its source that was not scanned? Assets say which scopes
+    they belong to in extra.coverage_scope (["account:111", "region:111/us-east-1"]). An asset that does
+    not say is assumed to be in the gap: unknown is never treated as checked."""
+    extra = asset.get("extra") if isinstance(asset, dict) else asset.extra
+    scopes = (extra or {}).get("coverage_scope")
+    if not scopes:
+        return True
+    return bool(set(scopes) & gap_ids)
+
+
 @dataclass
 class SourceResult:
-    """What one collector produced, plus whether it worked."""
+    """What one collector produced, plus whether it worked and how much of the source it reached."""
 
     name: str
     type: str
     assets: list[CryptoAsset] = field(default_factory=list)
     error: str | None = None
     duration_seconds: float = 0.0
+    coverage: Coverage = field(default_factory=Coverage)
+    carried: int = 0  # assets carried forward from the previous scan, not observed now
+
+    @property
+    def status(self) -> str:
+        if self.error:
+            return SCAN_FAILED
+        return SCAN_PARTIAL if self.coverage.gap_ids else SCAN_COMPLETE
+
+    def unverified(self, asset: dict[str, Any] | CryptoAsset) -> bool:
+        """A previously seen asset that is missing now: is that because nobody could look?"""
+        if self.status == SCAN_FAILED:
+            return True
+        return self.status == SCAN_PARTIAL and asset_in_gap(asset, self.coverage.gap_ids)
+
+    def why_unverified(self, asset: dict[str, Any] | CryptoAsset) -> str:
+        """The gap that hid this asset, e.g. 'paths:/mnt/keys: does not exist', or the source error."""
+        if self.error:
+            return f"source failed: {self.error}"
+        extra = asset.get("extra") if isinstance(asset, dict) else asset.extra
+        scopes = set((extra or {}).get("coverage_scope") or [])
+        hits = [f"{g['id']}: {g['reason']}" for s in self.coverage.scopes.values() for g in s.gaps if g["id"] in scopes]
+        return "; ".join(hits) or f"partial scan ({self.coverage.describe()})"
 
 
 @dataclass
@@ -248,7 +401,8 @@ class Inventory:
             by_source.setdefault(a["source"], []).append(CryptoAsset.from_dict(a))
         sources = [
             SourceResult(name=s["name"], type=s["type"], assets=by_source.get(s["name"], []), error=s.get("error"),
-                         duration_seconds=float(s.get("duration_seconds") or 0))
+                         duration_seconds=float(s.get("duration_seconds") or 0),
+                         coverage=Coverage.from_dict(s.get("coverage")), carried=int(s.get("carried") or 0))
             for s in d.get("sources") or []
         ]  # fmt: skip
         generated = d.get("generated_at")
@@ -279,6 +433,10 @@ class Inventory:
             "assets": len(self.assets),
             "sources": len(self.sources),
             "sources_failed": sum(1 for s in self.sources if s.error),
+            "sources_partial": sum(1 for s in self.sources if s.status == SCAN_PARTIAL),
+            "scan_status": self.status,
+            "assets_unobserved": sum(1 for a in self.assets if not a.observed),
+            "findings_unverified": sum(1 for f in self.findings if not f.verified),
             "applications": len(self.applications),
             "assets_linked": linked,
             "assets_unlinked": len(self.assets) - linked if self.applications else None,
@@ -287,6 +445,14 @@ class Inventory:
             "assets_by_kind": by_kind,
             "assets_by_algorithm": dict(sorted(by_alg.items(), key=lambda kv: -kv[1])),
         }
+
+    @property
+    def status(self) -> str:
+        """complete: every source fully scanned. partial: some source failed or missed part of its scope.
+        failed: no source worked."""
+        if self.sources and all(s.status == SCAN_FAILED for s in self.sources):
+            return SCAN_FAILED
+        return SCAN_COMPLETE if all(s.status == SCAN_COMPLETE for s in self.sources) else SCAN_PARTIAL
 
     def executive(self) -> dict[str, Any]:
         """Quantum exposure and what falls due before each PQC date, as of the scan (analysis.executive)."""
@@ -307,6 +473,9 @@ class Inventory:
                     "type": s.type,
                     "assets": len(s.assets),
                     "error": s.error,
+                    "status": s.status,
+                    "coverage": s.coverage.to_dict(),
+                    "carried": s.carried,
                     "duration_seconds": round(s.duration_seconds, 3),
                 }
                 for s in self.sources
