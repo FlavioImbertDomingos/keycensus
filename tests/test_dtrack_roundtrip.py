@@ -93,3 +93,27 @@ def test_upload_wait_reports_failed_processing():
 def test_upload_wait_still_works_without_status():
     responses.add(responses.GET, f"{DT}/api/v1/bom/token/t", json={"processing": False})
     assert DependencyTrack(DT, "k").wait("t", timeout=5, interval=0)
+
+
+@pytest.mark.parametrize("version", ["1.6", "1.7"])
+def test_keys_and_algorithms_no_longer_share_an_identity(sample_inventory, version):
+    """Each asset's component carries its source as `group`, so Dependency-Track cannot merge a key named
+    after its algorithm with the algorithm, or same-named keys from two sources."""
+    bom = cbom.build(sample_inventory, version)
+    by_ref = {c["bom-ref"]: c for c in bom["components"]}
+    for a in sample_inventory.assets:
+        if a.id in by_ref:
+            assert by_ref[a.id]["group"] == a.source
+    algorithm_names = {c["name"] for c in bom["components"] if "group" not in c and c["type"] != "application"}
+    for c in bom["components"]:
+        if "group" in c:
+            assert identity(c) not in {("", n, "", "") for n in algorithm_names}
+
+
+def test_merged_asset_components_fail_the_roundtrip():
+    sent = {"components": [
+        {"bom-ref": "a", "type": "cryptographic-asset", "group": "vault", "name": "dek"},
+        {"bom-ref": "b", "type": "cryptographic-asset", "group": "vault", "name": "dek"}]}  # fmt: skip
+    r = compare(sent, simulated_export(sent))
+    assert r["assets_merged"] == ["vault/dek"]
+    assert any("were merged" in p for p in roundtrip_ok(r))

@@ -195,3 +195,39 @@ def test_no_credentials(tmp_path, monkeypatch):
     monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
     r = build(source("x", "kubernetes", kubeconfig=str(tmp_path / "missing"))).run()
     assert "no Kubernetes credentials" in r.error
+
+
+class NamespacedKube(FakeKube):
+    """RBAC as deploy/kubernetes/keycensus-reader.yaml describes when narrowed: RoleBindings in some
+    namespaces, no ClusterRoleBinding. Everything in `locked`, and every cluster-scoped list, is forbidden."""
+
+    def route(self, path):
+        p = urlparse(path).path
+        if "/namespaces/locked/" in p or "/namespaces/" not in p:
+            return 403, {"kind": "Status", "apiVersion": "v1", "status": "Failure", "reason": "Forbidden",
+                         "code": 403}  # fmt: skip
+        return super().route(path)
+
+
+def test_rolebindings_per_namespace_give_a_gap_only_for_the_unbound_one(tmp_path):
+    from keycensus.doctor import diagnose
+
+    kube = NamespacedKube(None)
+    try:
+        r = build(source("prod", "kubernetes", kubeconfig=kube.kubeconfig(tmp_path),
+                         namespaces=["payments", "locked", "legacy"])).run()  # fmt: skip
+    finally:
+        kube.close()
+    assert r.error is None, r.error
+    assert r.status == "partial"
+    assert {a.extra.get("namespace") for a in r.assets if a.extra.get("namespace")} == {"payments", "legacy"}
+    gaps = {g["id"]: g["kind"] for s in r.coverage.scopes.values() for g in s.gaps}
+    assert gaps == {"namespaces:locked": "denied", "namespaces-opaque:locked": "denied",
+                    "cert-manager:issuers/locked": "denied", "cert-manager:certificates/locked": "denied"}  # fmt: skip
+    # pods and ingresses in the other namespaces were still read; ClusterIssuers are an optional read
+    assert set(r.coverage.optional_denied) == {"pods/list", "ingresses/list", "clusterissuers/list"}
+    api = next(a for a in r.assets if a.extra.get("secret") == "api-tls")
+    assert any(u["id"].startswith("payments/") for u in api.used_by)
+    d = diagnose({"name": r.name, "type": r.type, "assets": len(r.assets), "coverage": r.coverage})
+    ns_gap = next(p for p in d.problems if p.scope == "namespaces")
+    assert ns_gap.items == ["locked"] and ns_gap.fix.file == "deploy/kubernetes/keycensus-reader.yaml"

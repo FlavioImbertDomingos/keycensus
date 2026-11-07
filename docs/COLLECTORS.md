@@ -609,10 +609,13 @@ private key at every renewal and gets `key-reuse-on-renewal` (low).
 volume or read it into env vars, and the ingresses that terminate TLS with it.
 
 Kubernetes RBAC cannot grant read access to TLS secrets only: `get`/`list` on secrets returns every value.
-keycensus keeps only descriptions, but scope the grant with namespaced RoleBindings if that matters to you.
+keycensus keeps only descriptions, but scope the grant with namespaced RoleBindings if that matters to you,
+and set `namespaces:` to the same list. A namespace in that list without a RoleBinding is a coverage gap
+(the source is partial and `keycensus doctor` names it); ClusterIssuers, which a RoleBinding cannot grant,
+are an optional read, so only their issuer type is missing.
 [`deploy/kubernetes/keycensus-reader.yaml`](../deploy/kubernetes/keycensus-reader.yaml) has the ClusterRole;
-the Helm chart creates the same with `rbac.kubernetesSource: true`. Tested with the official client against
-a local server that answers in the API's shapes; not yet run against a live cluster.
+the Helm chart creates the same with `rbac.kubernetesSource: true`. CI runs the collector against kind with
+cert-manager, with exactly that narrowed RBAC (the `kubernetes` job).
 
 ## `ct` — Certificate Transparency
 

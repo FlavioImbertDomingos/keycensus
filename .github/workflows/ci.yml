@@ -133,6 +133,54 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  kubernetes:
+    # The kubernetes collector against a real cluster: kind with cert-manager, RBAC from
+    # deploy/kubernetes/keycensus-reader.yaml narrowed to two namespaces, a third one forbidden.
+    name: Kubernetes (kind, cert-manager)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          cluster_name: keycensus
+      - name: Install cert-manager
+        run: |
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml
+          for d in cert-manager cert-manager-cainjector cert-manager-webhook; do
+            kubectl -n cert-manager rollout status "deploy/$d" --timeout=180s
+          done
+      - name: Seed the cluster
+        run: tests/integration/kind_seed.sh "$RUNNER_TEMP/keycensus.kubeconfig"
+      - name: Install
+        run: pip install -e ".[test]"
+      - name: Scan and diagnose
+        run: |
+          cat > "$RUNNER_TEMP/k8s.yml" <<EOF
+          sources:
+            - name: kind
+              type: kubernetes
+              kubeconfig: $RUNNER_TEMP/keycensus.kubeconfig
+              namespaces: [apps, certs, locked]
+          EOF
+          rc=0; keycensus scan -c "$RUNNER_TEMP/k8s.yml" -o out -f json --require-complete || rc=$?
+          test "$rc" = 6   # partial: the locked namespace is denied
+          rc=0; keycensus doctor -c "$RUNNER_TEMP/k8s.yml" --json > doctor.json || rc=$?
+          cat doctor.json
+          test "$rc" = 6
+          keycensus doctor -i out/inventory.json >> "$GITHUB_STEP_SUMMARY" || true
+          python tests/integration/kind_check.py out/inventory.json doctor.json
+      - name: Cluster state on failure
+        if: failure()
+        run: |
+          kubectl get all,secrets,certificates,issuers -A || true
+          kubectl -n cert-manager logs deploy/cert-manager --tail=100 || true
+
   dependency-track:
     # A CBOM with applications, relationships and findings, uploaded with `keycensus upload dtrack` into
     # a fresh Dependency-Track, exported back and compared. 4.14 has no type for cryptographic assets, so

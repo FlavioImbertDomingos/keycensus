@@ -85,6 +85,8 @@ def compare(sent: dict, back: dict) -> dict:
         "distinct_identities_sent": len(sent_ids),
         "components_back": len(back_c),
         "merged_by_identity": {"/".join(x for x in k if x): n for k, n in merged.items()},
+        # Asset components carry their source as group; only shared algorithm components may coincide.
+        "assets_merged": sorted("/".join(x for x in k if x) for k in merged if k[0]),
         "missing": sorted("/".join(x for x in k if x) for k in set(sent_ids) - set(back_ids)),
         "unexpected": sorted("/".join(x for x in k if x) for k in set(back_ids) - set(sent_ids)),
         "type_changed": type_changed,
@@ -101,6 +103,8 @@ def compare(sent: dict, back: dict) -> dict:
 def roundtrip_ok(r: dict) -> list[str]:
     """The claims the docs make; each failure is a reason."""
     problems = []
+    if r.get("assets_merged"):
+        problems.append(f"asset components share an identity and were merged: {r['assets_merged'][:5]}")
     if r["missing"] or r["unexpected"]:
         problems.append(f"components differ: missing {r['missing']}, unexpected {r['unexpected']}")
     if r["type_changed"]:

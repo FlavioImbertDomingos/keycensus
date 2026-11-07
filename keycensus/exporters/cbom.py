@@ -365,6 +365,11 @@ def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
             components[a.id] = _protocol_component(a)
         elif a.kind == KIND_ALGORITHM:
             components[a.id] = _code_algorithm_component(a, v17)
+        if a.id in components and a.source:
+            # Tools such as Dependency-Track identify a component by group, name and version. Without a group,
+            # a key named "Ed25519" and the shared Ed25519 algorithm component are merged into one, and so are
+            # two keys with the same name in different sources.
+            components[a.id]["group"] = a.source
 
     for app in inv.applications:
         components[app.ref] = _application_component(app)

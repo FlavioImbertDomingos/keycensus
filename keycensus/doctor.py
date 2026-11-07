@@ -267,6 +267,10 @@ _OPTIONAL = {
     "kubernetes": {
         "pods/list": ("workloads that mount each secret are missing from used_by", 'resources: ["pods"]'),
         "ingresses/list": ("ingresses that terminate TLS with each secret are missing", 'resources: ["ingresses"]'),
+        "clusterissuers/list": (
+            "the issuer type of certificates issued by a ClusterIssuer is unknown",
+            '"clusterissuers"',
+        ),
     },
     "vault": {
         "list sys/policies/acl": ("policy consumers are missing from used_by", 'path "sys/policies/acl"'),
@@ -286,6 +290,11 @@ def optional_fix(stype: str, permission: str) -> tuple[str, Fix]:
         action = f"grant {grant} to the scanner role (and in the member role for organization: true)"
     elif stype == "vault":
         action = f'add {grant} {{ capabilities = ["{permission.split()[0]}"] }} to the keycensus policy'
+    elif stype == "kubernetes" and permission == "clusterissuers/list":
+        action = (
+            "bind the keycensus-reader ClusterRole with a ClusterRoleBinding, or a small ClusterRole with "
+            "list on clusterissuers: they are cluster-scoped, so a RoleBinding cannot grant them"
+        )
     elif stype == "kubernetes":
         action = f"grant list on {permission.split('/')[0]} to the keycensus-reader role"
     else:
