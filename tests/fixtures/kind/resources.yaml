@@ -1,0 +1,43 @@
+# Applied by tests/integration/kind_seed.sh into a kind cluster with cert-manager installed.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+  namespace: certs
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: internal
+  namespace: certs
+spec:
+  secretName: internal-tls
+  commonName: internal.certs.example.com
+  dnsNames: [internal.certs.example.com]
+  duration: 2160h
+  issuerRef: {name: selfsigned, kind: Issuer}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Never        # keycensus reports key-reuse-on-renewal for this
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: apps
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      containers:
+        - name: web
+          image: registry.k8s.io/pause:3.10
+          volumeMounts: [{name: tls, mountPath: /tls, readOnly: true}]
+      volumes:
+        - name: tls
+          secret: {secretName: web-tls}

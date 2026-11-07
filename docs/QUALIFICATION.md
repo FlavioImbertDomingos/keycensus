@@ -4,7 +4,7 @@ How far each part of keycensus has been tested, against what, and what it is kno
 defined in [ROADMAP.md](ROADMAP.md#stages). Nothing here is field-validated yet: if you run keycensus
 against a real estate, an issue saying which collectors worked is the most useful report you can send.
 
-Last updated for 0.15.0. Every row runs in CI on every push unless it says otherwise.
+Last updated for 0.16.0. Every row runs in CI on every push unless it says otherwise.
 
 ## Collectors
 
@@ -24,7 +24,7 @@ Last updated for 0.15.0. Every row runs in CI on every push unless it says other
 | `ssh` | OpenSSH 9.6 | integration-tested | complete or failed | |
 | `network` | Local TLS, SSH and LDAP servers | integration-tested | complete or failed | A host that does not answer is not a gap: discovery cannot know it should have answered. |
 | `ct` | Cert Spotter live (once, by hand; CI replays the real response); crt.sh from recorded shapes | integration-tested (Cert Spotter), implemented (crt.sh) | domains | crt.sh is often slow or erroring. |
-| `kubernetes` | The official Python client against a local server answering in the API's shapes | implemented | namespaces, cert-manager; denied pods and ingresses | Not run against a real cluster yet. |
+| `kubernetes` | The official Python client against a local server answering in the API's shapes; CI: kind with cert-manager 1.21 and namespaced RBAC (not yet run on GitHub Actions) | implemented | namespaces, cert-manager; denied pods, ingresses and ClusterIssuers | Becomes integration-tested once the kind job has passed. |
 | `code` | A sample repository that compiles with javac, go, node, gcc and python; two open-source JWT libraries (node-jsonwebtoken, jjwt) | integration-tested | complete or failed | Pattern-based: does not follow variables or wrappers; reads the working tree, not git history. |
 
 "Complete or failed" means the collector does not break its scope down. Its assets are still carried

@@ -15,7 +15,14 @@ Every item moves through four stages. The roadmap names the stage an item has re
 | integration-tested | Tested against a real implementation of the system it talks to: a real Vault, SoftHSM, OpenLDAP, files made by `keytool` or `ssh-keygen`, a certified OIDC provider, or a vendor emulator where the table says so. |
 | field-validated | Run against a real production estate by someone other than the author, with the result reported back. |
 
-## Now: 0.15.0, Dependency-Track round-trip
+## Now: 0.16.0, Kubernetes in CI
+
+| Item | Stage | Acceptance criterion |
+|---|---|---|
+| Kubernetes against a real cluster | implemented | The collector runs in CI against kind with cert-manager: a TLS secret mounted by a Deployment, an Opaque secret with a key, a Certificate with `rotationPolicy: Never`, and a namespace the service account may not read. RBAC is `deploy/kubernetes/keycensus-reader.yaml` narrowed to RoleBindings. The scan must find each asset and nothing from the forbidden namespace, and `doctor` must name that namespace and the file. Becomes integration-tested when the job has passed on GitHub Actions. |
+| CBOM components that Dependency-Track does not merge | implemented | Asset components carry their source as `group`; the Dependency-Track job fails if any asset component is merged on import. |
+
+## Shipped in 0.15.0, Dependency-Track round-trip
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
@@ -60,7 +67,6 @@ Voltage reads export files and stays complete-or-failed.
 | Item | Stage | Acceptance criterion |
 |---|---|---|
 | Live Azure Key Vault and GCP KMS runs in CI | implemented (harness only) | The OIDC harness in [INTEGRATION-TESTS.md](INTEGRATION-TESTS.md) runs on a schedule against real accounts, and its last result is published. Until then both collectors stay "implemented". |
-| Kubernetes against a real cluster | planned | The collector runs in CI against kind with cert-manager installed: TLS and Opaque secrets, a Certificate, a forbidden namespace. |
 | Cloud organization discovery live | planned | One real AWS organization, Azure tenant and GCP folder, with the coverage counts checked by hand. |
 | CipherTrust and KeySafe 5 field mappings | planned | A redacted response from a real appliance, checked into the test fixtures. |
 | AD CS against a live forest and CA export | planned | A run against a lab forest, with a real `certutil -view` export. |

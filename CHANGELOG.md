@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.16.0 — 2026-11-06
+
+**The Kubernetes collector against a real cluster in CI, and CBOM components Dependency-Track keeps apart.**
+
+- New CI job `kubernetes`: a kind cluster with cert-manager 1.21, seeded by
+  `tests/integration/kind_seed.sh` with a TLS secret mounted by a Deployment, an Opaque secret holding an
+  EC key, a cert-manager Certificate with `rotationPolicy: Never`, and a namespace the service account
+  may not read. RBAC is `deploy/kubernetes/keycensus-reader.yaml` with its ClusterRoleBinding replaced by
+  RoleBindings, as the file's header suggests. The job checks that the scan finds each asset, its
+  consumer and the `key-reuse-on-renewal` finding, reads nothing from the forbidden namespace, exits 6 with
+  `--require-complete`, and that `doctor` names the namespace and the file.
+- Kubernetes with RoleBindings per namespace: a namespace that cannot be read is a gap for that namespace
+  only. Before, a denied pod, ingress or cert-manager listing in one namespace stopped the listing for the
+  rest, and a forbidden ClusterIssuer list made every namespaced scan partial. ClusterIssuers are now an
+  optional read, with a doctor remedy.
+- CBOM: key, certificate, endpoint and code components carry their source as `group`, in 1.6 and 1.7.
+  Dependency-Track merges components with the same group, name and version, and used to merge a key named
+  "Ed25519" into the Ed25519 algorithm component. The Dependency-Track job now fails if any asset
+  component is merged.
+
 ## 0.15.0 — 2026-11-06
 
 **A Dependency-Track round-trip in CI, and docs that say what Dependency-Track keeps.**

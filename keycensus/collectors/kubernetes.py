@@ -120,10 +120,10 @@ class KubernetesCollector(Collector):
         except (config.ConfigException, FileNotFoundError) as exc:
             raise CollectorError(f"[{self.name}] no Kubernetes credentials: {exc}") from exc
 
-    def _list(self, all_ns, per_ns, scope: str | None = None, **kw):
+    def _list(self, all_ns, per_ns, scope: str | None = None, optional: str | None = None, **kw):
         """Every item, across the configured namespaces, following `continue` tokens. With `scope`, a namespace
-        that cannot be listed is recorded as a coverage gap and skipped; the cluster-wide list failing fails
-        the source."""
+        that cannot be listed is recorded as a coverage gap and skipped; with `optional`, as a denied optional
+        permission. Otherwise, and for the cluster-wide list, the error is raised."""
         from kubernetes.client.exceptions import ApiException  # noqa: PLC0415
 
         targets = [(per_ns, {"namespace": ns}) for ns in self.namespaces] or [(all_ns, {})]
@@ -138,6 +138,9 @@ class KubernetesCollector(Collector):
                     if not cont:
                         break
             except ApiException as exc:
+                if optional and args:
+                    self.coverage.optional(optional)
+                    continue
                 if not (scope and args):
                     raise
                 self.coverage.gap(scope, args["namespace"], f"HTTP {exc.status}: {exc.reason}", gap_kind(exc))
@@ -242,7 +245,8 @@ class KubernetesCollector(Collector):
                 lst.append(entry)
 
         try:
-            for pod in self._list(self.core.list_pod_for_all_namespaces, self.core.list_namespaced_pod):
+            for pod in self._list(self.core.list_pod_for_all_namespaces, self.core.list_namespaced_pod,
+                                  optional="pods/list"):  # fmt: skip
                 ns, who, spec = pod.metadata.namespace, _owner(pod.metadata), pod.spec
                 for v in spec.volumes or []:
                     if v.secret and v.secret.secret_name:
@@ -262,7 +266,8 @@ class KubernetesCollector(Collector):
             self.coverage.optional("pods/list")
             log.info("[%s] pods not listed (%s): used_by will be empty", self.name, exc.status)
         try:
-            for ing in self._list(self.net.list_ingress_for_all_namespaces, self.net.list_namespaced_ingress):
+            for ing in self._list(self.net.list_ingress_for_all_namespaces, self.net.list_namespaced_ingress,
+                                  optional="ingresses/list"):  # fmt: skip
                 for t in ing.spec.tls or []:
                     if t.secret_name:
                         add(ing.metadata.namespace, t.secret_name, f"Ingress/{ing.metadata.name}", "k8s-ingress")
@@ -276,26 +281,32 @@ class KubernetesCollector(Collector):
         from kubernetes.client.exceptions import ApiException  # noqa: PLC0415
 
         items: list[dict] = []
-        try:
-            if cluster_scoped or not self.namespaces:
-                targets = [lambda **kw: self.custom.list_cluster_custom_object(CM_GROUP, CM_VERSION, plural, **kw)]
-            else:
-                targets = [lambda ns=ns, **kw: self.custom.list_namespaced_custom_object(CM_GROUP, CM_VERSION, ns,
-                                                                                         plural, **kw)
-                           for ns in self.namespaces]  # fmt: skip
-            for fn in targets:
-                cont = None
+        if cluster_scoped or not self.namespaces:
+            targets = [(None, lambda **kw: self.custom.list_cluster_custom_object(CM_GROUP, CM_VERSION, plural, **kw))]
+        else:
+            targets = [(ns, lambda ns=ns, **kw: self.custom.list_namespaced_custom_object(CM_GROUP, CM_VERSION, ns,
+                                                                                          plural, **kw))
+                       for ns in self.namespaces]  # fmt: skip
+        for ns, fn in targets:
+            cont = None
+            try:
                 while True:
                     page = fn(limit=500, _continue=cont) if cont else fn(limit=500)
                     items += page.get("items") or []
                     cont = (page.get("metadata") or {}).get("continue")
                     if not cont:
                         break
-        except ApiException as exc:
-            if exc.status == 404:
-                log.info("[%s] cert-manager is not installed (no %s.%s)", self.name, plural, CM_GROUP)
-            else:
-                self.coverage.gap("cert-manager", plural, f"HTTP {exc.status}: {exc.reason}", gap_kind(exc))
+            except ApiException as exc:
+                if exc.status == 404:
+                    log.info("[%s] cert-manager is not installed (no %s.%s)", self.name, plural, CM_GROUP)
+                    return items
+                if plural == "clusterissuers" and self.namespaces:
+                    # Namespace-scoped access (RoleBindings) cannot list cluster-scoped resources. Only the issuer
+                    # type of ClusterIssuer references is lost, so this is an optional read, not a gap.
+                    self.coverage.optional("clusterissuers/list")
+                    return items
+                self.coverage.gap("cert-manager", f"{plural}/{ns}" if ns else plural,
+                                  f"HTTP {exc.status}: {exc.reason}", gap_kind(exc))  # fmt: skip
                 log.warning("[%s] cert-manager %s not listed: HTTP %s", self.name, plural, exc.status)
         return items
 

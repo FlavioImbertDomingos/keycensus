@@ -39,6 +39,10 @@ component has no `algorithmFamily`, keeps the plain name (`RSA-2048`), and carri
 `keycensus:registryNote` property saying what was missing. Guessing would put a wrong family in a
 document auditors rely on.
 
+Every key, certificate, endpoint and code component has `group` set to the name of the source it came
+from (from 0.16.0), so tools that identify components by group, name and version, Dependency-Track among
+them, do not merge a key with an algorithm of the same name.
+
 The 1.6 output is unchanged apart from three added properties, `keycensus:registryName`,
 `keycensus:registryFamily` and `keycensus:registryNote`, so names and `bom-ref`s stay the same for anyone
 already diffing 1.6 CBOMs.

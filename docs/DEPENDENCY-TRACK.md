@@ -41,9 +41,13 @@ column on every push. Use Dependency-Track 5.1 or later for a CBOM.
 
 Two consequences for how you use it:
 
-* Dependency-Track identifies a component by group, name, version and package URL. Components that share
-  them are merged on import, so an Ed25519 key that keycensus names after its algorithm, and the
-  `Ed25519` algorithm component, become one component. The CBOM file keeps them apart.
+* Dependency-Track identifies a component by group, name, version and package URL, and merges components
+  that share them. keycensus sets `group` to the source name on every key, certificate, endpoint and code
+  component, so a key named after its algorithm, or two keys with the same name in different sources,
+  stay apart. Two keys with the same name in the same source are still merged. The shared algorithm
+  components have no group; the only ones that can coincide are an EdDSA public-key algorithm and the same
+  algorithm used to sign a certificate, which describe the same thing. The CI job fails if any asset
+  component is merged.
 * Dependency-Track computes findings from package URLs and its vulnerability feeds; it does not import
   findings embedded in a BOM. keycensus findings stay in the report, `inventory.json`, the CBOM file and
   `/metrics`.
