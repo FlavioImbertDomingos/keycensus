@@ -55,6 +55,15 @@ class InventoryCollector:
         info = InfoMetricFamily(f"{NS}_build", "keycensus build info")
         info.add_metric([], {"version": __version__})
         yield info
+        pack = (self.inventory.policy_pack if self.inventory else None) or {}
+        if pack:
+            pinfo = InfoMetricFamily(f"{NS}_policy", "The policy pack the last scan used")
+            pinfo.add_metric([], {"name": str(pack.get("name")), "version": str(pack.get("version") or ""),
+                                  "digest": str(pack.get("digest", ""))[:12]})  # fmt: skip
+            yield pinfo
+            overdue = GaugeMetricFamily(f"{NS}_policy_review_overdue", "1 when the policy pack is past its review date")
+            overdue.add_metric([], 1.0 if pack.get("review_overdue") else 0.0)
+            yield overdue
 
         scans = CounterMetricFamily(f"{NS}_scans", "Completed scans")
         scans.add_metric([], float(self.scan_count))

@@ -13,6 +13,8 @@
   header { background:#111827; color:#fff; padding:28px 32px }
   header h1 { margin:0 0 4px; font-size:22px; font-weight:600 }
   header p { margin:0; color:#cbd5e1 }
+  header p + p { margin-top:6px }
+  header p.warn { color:#fde68a; font-weight:600 }
   main { max-width:1200px; margin:0 auto; padding:24px 32px 64px }
   h2 { font-size:17px; margin:32px 0 12px }
   .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px }
@@ -62,7 +64,9 @@
 <body>
 <header>
   <h1>keycensus — cryptographic inventory</h1>
-  <p>Generated {{ generated_at }} · policy <strong>{{ policy }}</strong> · {{ summary.sources }} sources · {{ summary.assets }} assets · {{ summary.findings }} findings</p>
+  <p>Generated {{ generated_at }} · policy <strong>{{ policy }}</strong>{% if policy_pack.effective %} (effective {{ policy_pack.effective }}{% if policy_pack.review_by %}, review by {{ policy_pack.review_by }}{% endif %}){% endif %} · {{ summary.sources }} sources · {{ summary.assets }} assets · {{ summary.findings }} findings</p>
+  {% if policy_pack.review_overdue %}<p class="warn">The policy pack was due for review on {{ policy_pack.review_by }}. Findings are graded by a policy nobody has confirmed since.</p>{% endif %}
+  {% if policy_pack.upcoming %}<p>Policy changes already scheduled: {% for u in policy_pack.upcoming[:5] %}{{ u.rule }} {{ u.change }} from {{ u["from"] }}{% if not loop.last %}; {% endif %}{% endfor %}{% if policy_pack.upcoming|length > 5 %} and {{ policy_pack.upcoming|length - 5 }} more{% endif %}.</p>{% endif %}
 </header>
 <main>
 

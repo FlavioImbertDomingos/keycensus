@@ -1,12 +1,33 @@
 # keycensus default policy.
 #
-# Copy this file, change the numbers, and pass it with `--policy my-policy.yml`.
-# Every rule can be turned off with `enabled: false` or re-graded with `severity:`.
+# Write your own pack with only what changes (it is merged over this one) and pass it with
+# `--policy my-policy.yml`; docs/POLICY.md has the format. Every rule can be turned off with
+# `enabled: false`, re-graded with `severity:`, dated with `effective:` or `schedule:`, and narrowed
+# with `applies_to:`.
 #
 # Defaults are conservative readings of PCI DSS v4.0.1 "strong cryptography",
 # NIST SP 800-57 cryptoperiods and NIST SP 800-131A / IR 8547 (final, Oct 2026) transitions.
 
 name: default
+version: "2026.11.0"         # bump on every change; every scan and finding records it
+effective: 2026-11-14        # the date this version applies from
+review_by: 2027-05-14        # keycensus warns after this date
+description: Conservative readings of PCI DSS v4.0.1, NIST SP 800-57, SP 800-131A and IR 8547.
+references:
+  - id: PCI-DSS-4.0.1
+    title: PCI DSS v4.0.1
+    url: https://www.pcisecuritystandards.org/document_library/
+  - id: NIST-SP-800-57
+    title: NIST SP 800-57 Part 1 Rev. 5, Recommendation for Key Management
+    url: https://csrc.nist.gov/pubs/sp/800/57/pt1/r5/final
+  - id: NIST-SP-800-131A
+    title: NIST SP 800-131A Rev. 2, Transitioning the Use of Cryptographic Algorithms and Key Lengths
+    url: https://csrc.nist.gov/pubs/sp/800/131/a/r2/final
+  - id: NIST-IR-8547
+    title: NIST IR 8547, Transition to Post-Quantum Cryptography Standards
+    url: https://csrc.nist.gov/pubs/ir/8547/final
+  - id: EO-14412
+    title: Executive Order 14412
 
 # How long a key may be used before it must be rotated (days).
 # NIST SP 800-57 Pt.1 Table 1 suggests <= 2 years for symmetric data-encryption

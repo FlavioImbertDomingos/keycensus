@@ -1,17 +1,90 @@
 # Policy & rules
 
-A policy is a YAML file with three parts: **cryptoperiods** (how long a key may live),
-**certificate thresholds**, and per-rule **enabled / severity** overrides. The built-in default
-is [`keycensus/data/default-policy.yml`](../keycensus/data/default-policy.yml).
+A policy is a versioned **pack**: a YAML file with cryptoperiods (how long a key may live), certificate
+thresholds, and settings per rule, plus a version, an effective date, a review date and references.
+keycensus ships two packs, `default`
+([`keycensus/data/default-policy.yml`](../keycensus/data/default-policy.yml)) and `nist-pqc`
+([`keycensus/data/policies/nist-pqc.yml`](../keycensus/data/policies/nist-pqc.yml)), and you can write your
+own.
 
 ```bash
-keycensus rules                                   # list rules and default severities
-cp keycensus/data/default-policy.yml my-policy.yml
-keycensus scan -c config.yml --policy my-policy.yml
+keycensus policy show default                     # version, dates, references, every rule
+keycensus policy show nist-pqc --as-of 2031-06-01 # severities on a future date
+keycensus policy validate my-policy.yml           # unknown rules, bad severities and dates
+keycensus policy diff default my-policy.yml       # what your pack changes, for review
+keycensus scan -c config.yml --policy my-policy.yml   # or `policy: my-policy.yml` in the config
 ```
 
-Merging: `rules:` merges per rule (list only what you change); `cryptoperiod_days:` and
-`certificate:` are replaced wholesale when present (your numbers are the numbers).
+## Packs
+
+A pack lists only what it changes. It is merged over the pack it `extends` (the built-in `default` unless
+it says otherwise): `rules:` merges per rule, while `cryptoperiod_days:` and `certificate:` are replaced
+wholesale when present (your numbers are the numbers).
+
+```yaml
+name: acme-crypto
+version: "2027.1"            # bump on every change
+effective: 2027-01-15        # the date this version applies from
+review_by: 2027-07-15        # keycensus warns after this date
+owner: crypto-governance@acme.example
+extends: default             # or nist-pqc
+references:
+  - id: ACME-STD-12
+    title: ACME Cryptographic Standard, section 12
+    url: https://wiki.acme.example/crypto-standard
+applies_to:                  # the whole pack; every key is optional
+  exclude_source_types: [code]
+rules:
+  rotation-overdue:
+    severity: high
+    rationale: Keys protecting card data rotate yearly under ACME-STD-12.
+  quantum-vulnerable-encryption:
+    effective: 2027-04-01    # no findings before this date
+    schedule:                # severity steps on dates
+      - {from: 2028-01-01, severity: high}
+    applies_to: {source_types: [pkcs11, aws-kms]}
+    controls: [ACME-STD-12.4]          # replaces the rule's built-in controls
+    references: [ACME-STD-12]          # added to the finding's references
+  weak-hash: {enabled: false}
+```
+
+| Rule setting | Meaning |
+|---|---|
+| `enabled` | `false` switches the rule off. |
+| `severity` | `critical`, `high`, `medium`, `low` or `info`. |
+| `effective` | The rule raises nothing before this date. |
+| `schedule` | Severity steps: from each `from:` date the rule uses that step's severity. |
+| `applies_to` | `kinds`, `sources`, `source_types`, `exclude_sources`, `exclude_source_types`. A pack-level `applies_to` limits every rule. |
+| `controls` | The control ids the finding cites, replacing the built-in ones. |
+| `references` | Extra reference ids added to the finding. |
+| `rationale` | Why the setting is what it is. Shown by `policy show --json`, kept for reviewers. |
+
+keycensus refuses a pack with an unknown rule id, an unknown setting, a severity that is not one of the
+five, or a date it cannot read, and suggests the closest rule name. A typo in a rule name used to switch
+nothing off without anyone noticing. A pack without a version still loads, with a warning: scans then
+record only its digest.
+
+### What a scan records
+
+Every scan records the pack it used, in `inventory.json` under `policy_pack`: name, version, the
+`name@version` reference, a SHA-256 digest of the merged pack, where it came from, the effective and
+review dates, whether the review is overdue, the date the rules were evaluated on, and any dated changes
+still to come. Every finding records `policy: name@version`. The CBOM carries `keycensus:policy` and
+`keycensus:policyDigest`, the audit log records the pack with each `scan.start`, and `serve` exports
+`keycensus_policy_info` and `keycensus_policy_review_overdue`.
+
+The digest changes with any edit, so a pack changed without a version bump still shows up in
+`keycensus diff` as a policy change.
+
+Rules are evaluated on the scan's date: re-running an old pack on today's date can grade findings
+differently if it has a `schedule:`. `policy show --as-of` shows what a pack does on any date.
+
+### Built-in packs
+
+| Pack | What it is |
+|---|---|
+| `default` | Conservative readings of PCI DSS v4.0.1, NIST SP 800-57, SP 800-131A and IR 8547. Severities do not change with the date. |
+| `nist-pqc` | `default`, with the quantum findings graded up on NIST IR 8547's dates: from 2031-01-01 (deprecated after 2030) quantum-vulnerable encryption and key exchange are high and signatures medium; from 2036-01-01 (disallowed after 2035) they are critical and high. |
 
 ## Cryptoperiods
 
@@ -104,6 +177,9 @@ nothing. The `tls-*` rules run only on TLS endpoints, never on SSH.
 
 ```yaml
 name: pci-strict
+version: "1"
+effective: 2026-12-01
+review_by: 2027-06-01
 cryptoperiod_days:
   default: 180
   by_algorithm: {RSA: 365, EC: 365}
@@ -117,6 +193,8 @@ rules:
 
 ```yaml
 name: pqc-discovery
+version: "1"
+extends: nist-pqc
 rules:
   weak-algorithm: {enabled: false}
   weak-key-size: {enabled: false}

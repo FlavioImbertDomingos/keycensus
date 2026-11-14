@@ -15,7 +15,13 @@ Every item moves through four stages. The roadmap names the stage an item has re
 | integration-tested | Tested against a real implementation of the system it talks to: a real Vault, SoftHSM, OpenLDAP, files made by `keytool` or `ssh-keygen`, a certified OIDC provider, or a vendor emulator where the table says so. |
 | field-validated | Run against a real production estate by someone other than the author, with the result reported back. |
 
-## Now: 0.16.0, Kubernetes in CI
+## Now: 0.17.0, versioned policy packs
+
+| Item | Stage | Acceptance criterion |
+|---|---|---|
+| Versioned policy packs | implemented | Each pack has a version, an effective date, references, applicability and a review date, and every scan records the exact pack version and digest; every finding records the pack that produced it. Rules can take effect on a date and change severity on a schedule (the `nist-pqc` pack uses NIST IR 8547's dates). `keycensus diff` says whether a finding changed because of the asset, the policy or time. See [POLICY.md](POLICY.md). |
+
+## Shipped in 0.16.0, Kubernetes in CI
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
@@ -76,7 +82,6 @@ Voltage reads export files and stays complete-or-failed.
 | Item | Stage | Acceptance criterion |
 |---|---|---|
 | CycloneDX 1.7, keeping 1.6 | implemented (0.13.0); read by Dependency-Track 5.1 in CI from 0.15.0 | `--cbom-version 1.7` output validates against the 1.7 schema; algorithm names are normalised with the CycloneDX Cryptography Registry. |
-| Versioned policy packs | planned | Each policy has a version, an effective date, references, applicability and a review date, and every scan records the exact policy version. |
 | NIST / CISA minimum elements | planned | A mapping table from the CBOM to the minimum elements, once the guidance under EO 14412 is published. |
 
 ## Then: teams and scale

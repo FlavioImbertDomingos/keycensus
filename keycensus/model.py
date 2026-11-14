@@ -192,6 +192,9 @@ class Finding:
     # False when the asset was not observed in this scan (carried forward): the finding is still open, but
     # could not be re-verified. It is never resolved by a scan that did not look.
     verified: bool = True
+    # The policy pack that produced the finding, as name@version: a ticket or an audit can say which policy
+    # opened it, and a diff can tell a policy change from a change in the estate.
+    policy: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -388,6 +391,7 @@ class Inventory:
     findings: list[Finding] = field(default_factory=list)
     policy_name: str = "default"
     applications: list[Application] = field(default_factory=list)
+    policy_pack: dict[str, Any] | None = None  # Policy.describe(): version, digest, dates, upcoming changes
 
     @property
     def assets(self) -> list[CryptoAsset]:
@@ -410,6 +414,7 @@ class Inventory:
             generated_at=datetime.fromisoformat(generated.replace("Z", "+00:00")) if generated else utcnow(),
             sources=sources,
             policy_name=str(d.get("policy", "default")),
+            policy_pack=d.get("policy_pack"),
         )
         fnames = {f.name for f in Finding.__dataclass_fields__.values()}
         inv.findings = [Finding(**{k: v for k, v in f.items() if k in fnames}) for f in d.get("findings") or []]
@@ -465,6 +470,7 @@ class Inventory:
             "tool": "keycensus",
             "generated_at": iso(self.generated_at),
             "policy": self.policy_name,
+            "policy_pack": self.policy_pack,
             "summary": self.summary(),
             "executive": self.executive(),
             "sources": [

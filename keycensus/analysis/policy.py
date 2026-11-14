@@ -6,7 +6,11 @@ so an organisation can tune them without touching code.
 
 from __future__ import annotations
 
+import difflib
+import hashlib
+import json
 from collections.abc import Callable, Iterable
+from datetime import UTC, date, datetime
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -36,32 +40,179 @@ WEAK_CIPHER_MARKERS = ("RC4", "3DES", "DES-CBC", "NULL", "EXPORT", "anon", "MD5"
 PROTECTIVE_PURPOSES = {"encrypt", "decrypt", "wrap", "unwrap", "sign"}
 
 
+SEVERITY_LEVELS = ("critical", "high", "medium", "low", "info")
+RULE_KEYS = {"enabled", "severity", "effective", "schedule", "applies_to", "controls", "references", "rationale"}
+APPLIES_KEYS = {"kinds", "sources", "source_types", "exclude_sources", "exclude_source_types"}
+PACK_KEYS = {"name", "version", "effective", "review_by", "owner", "description", "references", "extends",
+             "applies_to", "rules", "cryptoperiod_days", "certificate"}  # fmt: skip
+
+
+class PolicyError(ValueError):
+    """A policy pack that cannot be used: every problem found, one per line."""
+
+
+def _as_date(v: Any) -> date | None:
+    if v is None or v == "":
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    return date.fromisoformat(str(v))
+
+
+def builtin_packs() -> dict[str, Any]:
+    """Built-in pack name -> resource. `default` is the base every other pack extends."""
+    data = resources.files("keycensus.data")
+    out = {"default": data.joinpath("default-policy.yml")}
+    for f in data.joinpath("policies").iterdir():
+        if f.name.endswith(".yml"):
+            out[f.name[:-4]] = f
+    return out
+
+
 class Policy:
-    def __init__(self, data: dict[str, Any]):
+    """A policy pack: thresholds, rules and the metadata that make a scan's result reproducible.
+
+    `name` and `version` say which pack it is; `digest` (SHA-256 of the merged content) says exactly what
+    it contained, so an edit without a version bump still shows. `as_of` is the date rules are evaluated
+    on: it decides which `effective` dates have passed and which `schedule` step applies."""
+
+    def __init__(self, data: dict[str, Any], source: str = "builtin:default", base: str | None = None):
         self.data = data
         self.name = str(data.get("name", "custom"))
+        self.version = str(data["version"]) if data.get("version") not in (None, "") else None
+        self.effective = _as_date(data.get("effective"))
+        self.review_by = _as_date(data.get("review_by"))
         self.rules: dict[str, dict] = data.get("rules") or {}
+        self.source = source
+        self.base = base
+        self.as_of: date = datetime.now(UTC).date()
+        self.digest = hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
+    # ------------------------------------------------------------ loading
     @classmethod
     def default(cls) -> Policy:
-        text = resources.files("keycensus.data").joinpath("default-policy.yml").read_text()
-        return cls(yaml.safe_load(text))
+        return cls(yaml.safe_load(builtin_packs()["default"].read_text()))
 
     @classmethod
     def load(cls, path: str | Path | None) -> Policy:
-        if not path or str(path) == "default":
+        """A built-in pack by name (`default`, `nist-pqc`) or a YAML file. Packs are merged over the pack
+        they extend (`extends:`, default `default`) so they list only what changes. Raises PolicyError."""
+        ref = str(path) if path else "default"
+        packs = builtin_packs()
+        if ref == "default":
             return cls.default()
-        base = cls.default().data
-        with open(path) as fh:
-            override = yaml.safe_load(fh) or {}
-        merged = _deep_merge(base, override)
-        return cls(merged)
+        if ref in packs and not Path(ref).exists():
+            override, source = yaml.safe_load(packs[ref].read_text()) or {}, f"builtin:{ref}"
+        else:
+            try:
+                with open(ref) as fh:
+                    override = yaml.safe_load(fh) or {}
+            except FileNotFoundError:
+                raise PolicyError(f"no policy file {ref}, and no built-in pack of that name "
+                                  f"(built-in: {', '.join(sorted(packs))})") from None  # fmt: skip
+            source = ref
+        if not isinstance(override, dict):
+            raise PolicyError(f"{ref}: a policy pack is a YAML mapping")
+        parent_name = str(override.get("extends") or "default")
+        if parent_name == "default":
+            parent = cls.default()
+        elif parent_name in packs and parent_name != ref:
+            parent = cls.load(parent_name)
+        else:
+            raise PolicyError(f"{ref}: extends {parent_name!r}, which is not a built-in pack")
+        problems = validate_pack(override, known_rules=set(parent.rules), where=ref)
+        if problems:
+            raise PolicyError("\n".join(problems))
+        merged = _deep_merge(parent.data, override)
+        for k in ("version", "effective", "review_by", "description", "references", "owner"):
+            if k not in override:  # metadata describes this pack, never inherited from the parent
+                merged.pop(k, None)
+        merged["name"] = override.get("name", Path(ref).stem)
+        merged.pop("extends", None)
+        return cls(merged, source=source, base=parent.ref)
 
+    # ------------------------------------------------------------ identity
+    @property
+    def ref(self) -> str:
+        return f"{self.name}@{self.version or 'unversioned'}"
+
+    def review_overdue(self, today: date | None = None) -> bool:
+        return bool(self.review_by and (today or self.as_of) > self.review_by)
+
+    def describe(self, today: date | None = None) -> dict[str, Any]:
+        """What a scan records about the pack it used (inventory.json `policy_pack`)."""
+        today = today or self.as_of
+        upcoming = []
+        for rid, r in sorted(self.rules.items()):
+            eff = _as_date(r.get("effective"))
+            if eff and eff > today and r.get("enabled", True):
+                upcoming.append({"rule": rid, "from": eff.isoformat(), "change": "rule takes effect"})
+            for step in r.get("schedule") or []:
+                when = _as_date(step.get("from"))
+                if when and when > today:
+                    upcoming.append({"rule": rid, "from": when.isoformat(), "change": f"severity {step['severity']}"})
+        upcoming.sort(key=lambda u: (u["from"], u["rule"]))
+        return {
+            "name": self.name,
+            "version": self.version,
+            "ref": self.ref,
+            "digest": self.digest,
+            "source": self.source,
+            "extends": self.base,
+            "effective": self.effective.isoformat() if self.effective else None,
+            "review_by": self.review_by.isoformat() if self.review_by else None,
+            "review_overdue": self.review_overdue(today),
+            "evaluated_on": today.isoformat(),
+            "references": self.data.get("references") or [],
+            "upcoming": upcoming,
+        }
+
+    # ------------------------------------------------------------ rules
     def enabled(self, rule: str) -> bool:
         return bool(self.rules.get(rule, {}).get("enabled", True))
 
+    def in_effect(self, rule: str) -> bool:
+        eff = _as_date(self.rules.get(rule, {}).get("effective"))
+        return self.enabled(rule) and not (eff and eff > self.as_of)
+
     def severity(self, rule: str, default: str = "medium") -> str:
-        return str(self.rules.get(rule, {}).get("severity", default))
+        r = self.rules.get(rule, {})
+        sev = str(r.get("severity", default))
+        for step in sorted(r.get("schedule") or [], key=lambda st: _as_date(st.get("from")) or date.min):
+            if (_as_date(step.get("from")) or date.min) <= self.as_of:
+                sev = str(step["severity"])
+        return sev
+
+    def applies(self, rule: str, asset: CryptoAsset) -> bool:
+        for scope in (self.data.get("applies_to") or {}, self.rules.get(rule, {}).get("applies_to") or {}):
+            if scope.get("kinds") and asset.kind not in scope["kinds"]:
+                return False
+            if scope.get("sources") and asset.source not in scope["sources"]:
+                return False
+            if scope.get("source_types") and asset.source_type not in scope["source_types"]:
+                return False
+            if asset.source in (scope.get("exclude_sources") or []):
+                return False
+            if asset.source_type in (scope.get("exclude_source_types") or []):
+                return False
+        return True
+
+    def finalize(self, finding: Finding, asset: CryptoAsset | None) -> Finding | None:
+        """Apply the pack to a finding a rule produced: drop it when the rule is off, not yet in effect or
+        does not apply to the asset; otherwise stamp the pack version and the pack's controls/references."""
+        rid = finding.rule_id
+        if not self.in_effect(rid) or (asset is not None and not self.applies(rid, asset)):
+            return None
+        r = self.rules.get(rid, {})
+        if r.get("controls"):
+            finding.controls = list(r["controls"])
+        for ref in r.get("references") or []:
+            if ref not in finding.references:
+                finding.references.append(ref)
+        finding.policy = self.ref
+        return finding
 
     def cryptoperiod_days(self, asset: CryptoAsset) -> int:
         cp = self.data.get("cryptoperiod_days") or {}
@@ -77,6 +228,82 @@ class Policy:
         return int((self.data.get("certificate") or {}).get(key, default))
 
 
+def validate_pack(pack: dict, known_rules: set[str], where: str = "policy") -> list[str]:
+    """Problems that would make a pack mean something other than what its author wrote. An unknown rule
+    id is an error, because a typo would otherwise switch nothing off and nobody would notice."""
+    out: list[str] = []
+    for k in pack:
+        if k not in PACK_KEYS:
+            out.append(f"{where}: unknown key {k!r} (known: {', '.join(sorted(PACK_KEYS))})")
+    if "version" in pack and not str(pack.get("version") or "").strip():
+        out.append(f"{where}: version is empty")
+    for k in ("effective", "review_by"):
+        try:
+            _as_date(pack.get(k))
+        except (TypeError, ValueError):
+            out.append(f"{where}: {k} {pack.get(k)!r} is not a date (YYYY-MM-DD)")
+    eff, rev = (_safe_date(pack.get("effective")), _safe_date(pack.get("review_by")))
+    if eff and rev and rev <= eff:
+        out.append(f"{where}: review_by {rev} is not after effective {eff}")
+    for ref in pack.get("references") or []:
+        if not isinstance(ref, dict) or not ref.get("id"):
+            out.append(f"{where}: each reference needs an id (and ideally a title and url): {ref!r}")
+    out += _validate_applies(pack.get("applies_to"), f"{where}: applies_to")
+    rules = pack.get("rules") or {}
+    if not isinstance(rules, dict):
+        return out + [f"{where}: rules must be a mapping of rule id to settings"]
+    for rid, r in rules.items():
+        at = f"{where}: rules.{rid}"
+        if rid not in known_rules:
+            close = difflib.get_close_matches(rid, sorted(known_rules), n=1)
+            out.append(f"{at}: unknown rule" + (f" (did you mean {close[0]}?)" if close else ""))
+            continue
+        if not isinstance(r, dict):
+            out.append(f"{at}: expected a mapping such as {{enabled: false}} or {{severity: high}}")
+            continue
+        for k in r:
+            if k not in RULE_KEYS:
+                out.append(f"{at}: unknown setting {k!r} (known: {', '.join(sorted(RULE_KEYS))})")
+        if "enabled" in r and not isinstance(r["enabled"], bool):
+            out.append(f"{at}: enabled must be true or false")
+        if "severity" in r and r["severity"] not in SEVERITY_LEVELS:
+            out.append(f"{at}: severity {r['severity']!r} is not one of {', '.join(SEVERITY_LEVELS)}")
+        if "effective" in r and _safe_date(r["effective"]) is None:
+            out.append(f"{at}: effective {r['effective']!r} is not a date (YYYY-MM-DD)")
+        for i, step in enumerate(r.get("schedule") or []):
+            if not isinstance(step, dict) or _safe_date(step.get("from")) is None:
+                out.append(f"{at}: schedule[{i}] needs a from: date")
+            elif step.get("severity") not in SEVERITY_LEVELS:
+                out.append(f"{at}: schedule[{i}] severity {step.get('severity')!r} is not one of "
+                           f"{', '.join(SEVERITY_LEVELS)}")  # fmt: skip
+        for k in ("controls", "references"):
+            if k in r and not (isinstance(r[k], list) and all(isinstance(x, str) for x in r[k])):
+                out.append(f"{at}: {k} must be a list of ids")
+        out += _validate_applies(r.get("applies_to"), f"{at}: applies_to")
+    return out
+
+
+def _safe_date(v: Any) -> date | None:
+    try:
+        return _as_date(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _validate_applies(scope: Any, at: str) -> list[str]:
+    if scope is None:
+        return []
+    if not isinstance(scope, dict):
+        return [f"{at}: expected a mapping"]
+    out = [
+        f"{at}: unknown key {k!r} (known: {', '.join(sorted(APPLIES_KEYS))})" for k in scope if k not in APPLIES_KEYS
+    ]
+    for k, v in scope.items():
+        if k in APPLIES_KEYS and not (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+            out.append(f"{at}: {k} must be a list")
+    return out
+
+
 # Blocks a custom policy replaces wholesale (your numbers are the numbers);
 # everything else (notably `rules`) merges per key so you only list what changes.
 _REPLACE_WHOLE = {"cryptoperiod_days", "certificate"}
@@ -89,6 +316,28 @@ def _deep_merge(base: dict, override: dict, _top: bool = True) -> dict:
             out[k] = _deep_merge(out[k], v, _top=False)
         else:
             out[k] = v
+    return out
+
+
+def diff_policies(old: Policy, new: Policy) -> list[dict[str, Any]]:
+    """What changed between two packs, rule by rule and threshold by threshold (for review before rollout)."""
+    out: list[dict[str, Any]] = []
+    for k in ("name", "version", "effective", "review_by"):
+        ov, nv = old.data.get(k), new.data.get(k)
+        if str(ov) != str(nv):
+            out.append({"what": k, "before": ov, "after": nv})
+    for block in ("cryptoperiod_days", "certificate", "applies_to"):
+        ov, nv = old.data.get(block), new.data.get(block)
+        if ov != nv:
+            out.append({"what": block, "before": ov, "after": nv})
+    for rid in sorted(set(old.rules) | set(new.rules)):
+        ov, nv = old.rules.get(rid), new.rules.get(rid)
+        if ov == nv:
+            continue
+        for k in sorted(set(ov or {}) | set(nv or {})):
+            a, b = (ov or {}).get(k), (nv or {}).get(k)
+            if a != b:
+                out.append({"what": f"rules.{rid}.{k}", "before": a, "after": b})
     return out
 
 
@@ -513,8 +762,11 @@ def public_halves(assets: Iterable[CryptoAsset]) -> set[str]:
     return out
 
 
-def evaluate(assets: Iterable[CryptoAsset], policy: Policy) -> list[Finding]:
+def evaluate(assets: Iterable[CryptoAsset], policy: Policy, today: date | None = None) -> list[Finding]:
+    """Every finding the pack produces for these assets, as of `today` (the scan date; default: now)."""
     assets = list(assets)
+    if today is not None:
+        policy.as_of = today
     skip = public_halves(assets)  # the public half of a key pair is the same key: don't report it twice
     findings: list[Finding] = []
     for asset in assets:
@@ -522,14 +774,15 @@ def evaluate(assets: Iterable[CryptoAsset], policy: Policy) -> list[Finding]:
             continue
         for rule in RULES.values():
             for finding in rule(policy, asset):
-                if policy.enabled(finding.rule_id):
-                    findings.append(finding)
+                kept = policy.finalize(finding, asset)
+                if kept is not None:
+                    findings.append(kept)
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     findings.sort(key=lambda f: (order.get(f.severity, 9), f.source, f.asset_name))
     return findings
 
 
-def rule_catalogue() -> list[dict[str, str]]:
+def rule_catalogue(policy: Policy | None = None) -> list[dict[str, str]]:
     """Human list of every rule id, for `keycensus rules` and the docs."""
-    p = Policy.default()
-    return [{"rule": rid, "severity": p.severity(rid), "enabled": str(p.enabled(rid)).lower()} for rid in p.rules]
+    p = policy or Policy.default()
+    return [{"rule": rid, "severity": p.severity(rid), "enabled": str(p.in_effect(rid)).lower()} for rid in p.rules]

@@ -1,0 +1,38 @@
+# keycensus built-in pack: the default policy plus NIST IR 8547's dates.
+#
+#   keycensus scan -c keycensus.yml --policy nist-pqc
+#
+# NIST IR 8547 deprecates RSA, ECDSA, ECDH, DH, DSA and EdDSA after 2030 and disallows them after 2035,
+# at every key size. This pack raises the quantum findings on those dates, so a scan in 2031 grades
+# them more severely than one today, and `keycensus diff` reports the change as a policy change.
+
+name: nist-pqc
+version: "2026.11.0"
+effective: 2026-11-14
+review_by: 2027-05-14
+extends: default
+description: The default policy, with quantum findings graded up on NIST IR 8547's 2030 and 2035 dates.
+references:
+  - id: NIST-IR-8547
+    title: NIST IR 8547, Transition to Post-Quantum Cryptography Standards
+    url: https://csrc.nist.gov/pubs/ir/8547/final
+
+rules:
+  quantum-vulnerable-encryption:      # harvest-now-decrypt-later: graded up first
+    severity: medium
+    schedule:
+      - {from: 2031-01-01, severity: high}       # deprecated after 2030
+      - {from: 2036-01-01, severity: critical}   # disallowed after 2035
+    references: [NIST-IR-8547]
+  quantum-vulnerable-key-exchange:
+    severity: medium
+    schedule:
+      - {from: 2031-01-01, severity: high}
+      - {from: 2036-01-01, severity: critical}
+    references: [NIST-IR-8547]
+  quantum-vulnerable:                 # signatures and certificates
+    severity: low
+    schedule:
+      - {from: 2031-01-01, severity: medium}
+      - {from: 2036-01-01, severity: high}
+    references: [NIST-IR-8547]

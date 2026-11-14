@@ -52,6 +52,21 @@ findings: neither removed nor resolved. `diff.json` lists them under `assets_unv
 them and their findings stay open, marked "not re-verified". `--no-carry-forward` turns that off.
 `keycensus serve` always carries forward from its previous scan.
 
+### Why a finding changed
+
+Every new and resolved finding in `diff.json` has a `cause`:
+
+| Cause | Means |
+|---|---|
+| `asset` | The asset appeared, disappeared or changed (a new key, a rotation, a re-issued certificate). |
+| `policy` | The asset did not change, and the policy pack did: a different version, or the same version with different content (the digests differ). The diff names both packs under `policy_changed`. |
+| `time` | Neither changed. Time did it: a key aged past its cryptoperiod, a certificate entered its expiry window, or a dated rule took effect. |
+
+A finding that is still there with a different severity is listed under `findings_regraded`, with
+`severity_before` and the same causes. A pack's `schedule:` step that has just passed shows up here as
+`time`. The text and Markdown output tag the policy and time ones, so a review can tell "the estate got
+worse" from "we raised the bar".
+
 `--fail-on-new` is the one most teams want in a pipeline: it lets you adopt keycensus on an estate
 with known problems and still block *new* ones.
 

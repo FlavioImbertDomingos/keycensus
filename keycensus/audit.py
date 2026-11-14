@@ -116,12 +116,13 @@ class AuditLog:
             return entry
 
     # ---------------------------------------------------------------- scan events
-    def scan_started(self, config, policy_sha256: str | None) -> None:
+    def scan_started(self, config, policy_sha256: str | None, policy_ref: str | None = None) -> None:
         current = {"config": config.config_sha256, "policy": policy_sha256}
         if self.last_hashes and self.last_hashes != current:
             self.write("config.changed", before=self.last_hashes, after=current)
         self.last_hashes = current
-        self.write("scan.start", config_sha256=config.config_sha256, policy_sha256=policy_sha256, sources=[
+        self.write("scan.start", config_sha256=config.config_sha256, policy_sha256=policy_sha256,
+                   policy=policy_ref, sources=[
             {"name": s.name, "type": s.type, "credentials": secrets.describe(s.options)} for s in config.sources
         ])  # fmt: skip
 
@@ -164,9 +165,11 @@ def file_hashes(paths: dict[str, Path]) -> dict[str, str]:
 def policy_sha256(policy_path: str | None) -> str | None:
     if policy_path and policy_path != "default" and Path(policy_path).exists():
         return hashlib.sha256(Path(policy_path).read_bytes()).hexdigest()
-    from importlib import resources  # noqa: PLC0415
+    from .analysis.policy import builtin_packs  # noqa: PLC0415
 
-    return hashlib.sha256(resources.files("keycensus.data").joinpath("default-policy.yml").read_bytes()).hexdigest()
+    packs = builtin_packs()
+    pack = packs.get(str(policy_path or "default"), packs["default"])
+    return hashlib.sha256(pack.read_bytes()).hexdigest()
 
 
 def webhook_sent(audit, ncfg, result: dict, changes: int) -> None:
