@@ -75,6 +75,9 @@ class Diff:
     unverified: list[dict] = field(default_factory=list)  # asset dicts
     findings_unverified: list[dict] = field(default_factory=list)
     sources_partial: list[dict] = field(default_factory=list)  # complete before, partial now
+    # Same finding, different severity: a pack change, or a dated `schedule:` step that has now passed.
+    findings_regraded: list[dict] = field(default_factory=list)
+    policy_changed: dict | None = None  # {"before": "default@2026.11.0", "after": "acme@3"} when the digest differs
 
     # ------------------------------------------------------------ views
     @property
@@ -92,6 +95,8 @@ class Diff:
                 self.sources_fixed,
                 self.unverified,
                 self.sources_partial,
+                self.findings_regraded,
+                self.policy_changed,
             )
         )
 
@@ -119,6 +124,10 @@ class Diff:
             "sources_partial": len(self.sources_partial),
             "assets_unverified": len(self.unverified),
             "findings_unverified": len(self.findings_unverified),
+            "findings_regraded": len(self.findings_regraded),
+            "findings_new_by_cause": _by_cause(self.findings_new),
+            "findings_resolved_by_cause": _by_cause(self.findings_resolved),
+            "policy_changed": self.policy_changed,
             "worst_new_severity": self.worst_new_severity(),
         }
 
@@ -135,6 +144,8 @@ class Diff:
             "findings_resolved": self.findings_resolved,
             "assets_unverified": [_brief(a) for a in self.unverified],
             "findings_unverified": self.findings_unverified,
+            "findings_regraded": self.findings_regraded,
+            "policy_changed": self.policy_changed,
             "sources": {
                 "added": self.sources_added,
                 "removed": self.sources_removed,
@@ -212,10 +223,33 @@ def diff_dicts(before: dict, after: dict) -> Diff:
 
     b_find = {fkey(f): f for f in before.get("findings", [])}
     a_find = {fkey(f): f for f in after.get("findings", [])}
-    d.findings_new = [a_find[k] for k in a_find.keys() - b_find.keys()]
+    bp, ap = before.get("policy_pack") or {}, after.get("policy_pack") or {}
+    if (bp or ap) and bp.get("digest") != ap.get("digest"):
+        d.policy_changed = {
+            "before": bp.get("ref") or before.get("policy"),
+            "after": ap.get("ref") or after.get("policy"),
+        }
+    changed_ids = {c.id for c in d.changed}
+    stable = (a_assets.keys() & b_assets.keys()) - changed_ids
+
+    def cause(f: dict) -> str:
+        """asset: the asset appeared, went or changed. policy: it did not, and the pack did. time: neither
+        changed, so it is the passing of time (an aging key, an expiring certificate, a dated rule)."""
+        if f.get("asset_id") not in stable:
+            return "asset"
+        return "policy" if d.policy_changed else "time"
+
+    d.findings_new = [a_find[k] | {"cause": cause(a_find[k])} for k in a_find.keys() - b_find.keys()]
     unverified_ids = {a["id"] for a in d.unverified}
     for k in b_find.keys() - a_find.keys():
-        (d.findings_unverified if k[1] in unverified_ids else d.findings_resolved).append(b_find[k])
+        if k[1] in unverified_ids:
+            d.findings_unverified.append(b_find[k])
+        else:
+            d.findings_resolved.append(b_find[k] | {"cause": cause(b_find[k])})
+    for k in a_find.keys() & b_find.keys():
+        if a_find[k].get("severity") != b_find[k].get("severity"):
+            d.findings_regraded.append(a_find[k] | {"severity_before": b_find[k].get("severity"),
+                                                    "cause": "policy" if d.policy_changed else "time"})  # fmt: skip
 
     b_src = {s["name"]: s for s in before.get("sources", [])}
     a_src = {s["name"]: s for s in after.get("sources", [])}
@@ -234,12 +268,25 @@ def diff_dicts(before: dict, after: dict) -> Diff:
     rank = {s: i for i, s in enumerate(SEVERITIES)}
     d.findings_new.sort(key=lambda f: (rank.get(f.get("severity"), 99), f.get("asset_name", "")))
     d.findings_resolved.sort(key=lambda f: (rank.get(f.get("severity"), 99), f.get("asset_name", "")))
+    d.findings_regraded.sort(key=lambda f: (rank.get(f.get("severity"), 99), f.get("asset_name", "")))
     d.added.sort(key=lambda a: (a.get("source", ""), a.get("name", "")))
     d.removed.sort(key=lambda a: (a.get("source", ""), a.get("name", "")))
     d.unverified.sort(key=lambda a: (a.get("source", ""), a.get("name", "")))
     d.findings_unverified.sort(key=lambda f: (rank.get(f.get("severity"), 99), f.get("asset_name", "")))
     d.changed.sort(key=lambda c: (c.source, c.name))
     return d
+
+
+def _by_cause(findings: list[dict]) -> dict[str, int]:
+    out = {"asset": 0, "policy": 0, "time": 0}
+    for f in findings:
+        if f.get("cause") in out:
+            out[f["cause"]] += 1
+    return out
+
+
+def _tag(f: dict) -> str:
+    return {"policy": "  (policy change)", "time": "  (time)"}.get(f.get("cause", ""), "")
 
 
 def diff_files(before: str | Path, after: str | Path) -> Diff:
@@ -280,12 +327,18 @@ def render_text(d: Diff) -> str:
             lines.append(f"  ~ {c.source}/{c.name} [{c.algorithm}]")
             for fld, ch in c.changes.items():
                 lines.append(f"      {fld}: {_fmt(ch['before'])} -> {_fmt(ch['after'])}")
+    if d.policy_changed:
+        lines += ["", f"policy: {d.policy_changed['before']} -> {d.policy_changed['after']}"]
     if d.findings_new:
         lines += ["", f"new findings ({len(d.findings_new)}):"]
-        lines += [f"  ! [{f['severity']:8}] {f['asset_name']} — {f['title']}" for f in d.findings_new]
+        lines += [f"  ! [{f['severity']:8}] {f['asset_name']} — {f['title']}{_tag(f)}" for f in d.findings_new]
     if d.findings_resolved:
         lines += ["", f"resolved findings ({len(d.findings_resolved)}):"]
-        lines += [f"  ✓ [{f['severity']:8}] {f['asset_name']} — {f['title']}" for f in d.findings_resolved]
+        lines += [f"  ✓ [{f['severity']:8}] {f['asset_name']} — {f['title']}{_tag(f)}" for f in d.findings_resolved]
+    if d.findings_regraded:
+        lines += ["", f"regraded findings ({len(d.findings_regraded)}):"]
+        lines += [f"  ~ [{f['severity_before']} -> {f['severity']}] {f['asset_name']} — {f['title']}{_tag(f)}"
+                  for f in d.findings_regraded]  # fmt: skip
     if d.unverified:
         lines += ["", f"not verified ({len(d.unverified)}): seen last time, not observed now because the scan "
                   "could not look; not removed"]  # fmt: skip
@@ -313,13 +366,22 @@ def render_markdown(d: Diff) -> str:
         f"{s['findings_resolved']} | {s['worst_new_severity'] or '-'} |",
         "",
     ]
+    if d.policy_changed:
+        out += [f"Policy changed: `{d.policy_changed['before']}` → `{d.policy_changed['after']}`", ""]
     if d.findings_new:
-        out += ["## New findings", "", "| Severity | Asset | Finding | Source |", "|---|---|---|---|"]
-        out += [f"| {f['severity']} | {f['asset_name']} | {f['title']} | {f['source']} |" for f in d.findings_new]
+        out += ["## New findings", "", "| Severity | Asset | Finding | Source | Cause |", "|---|---|---|---|---|"]
+        out += [f"| {f['severity']} | {f['asset_name']} | {f['title']} | {f['source']} | {f.get('cause', '')} |"
+                for f in d.findings_new]  # fmt: skip
         out.append("")
     if d.findings_resolved:
-        out += ["## Resolved findings", "", "| Severity | Asset | Finding |", "|---|---|---|"]
-        out += [f"| {f['severity']} | {f['asset_name']} | {f['title']} |" for f in d.findings_resolved]
+        out += ["## Resolved findings", "", "| Severity | Asset | Finding | Cause |", "|---|---|---|---|"]
+        out += [f"| {f['severity']} | {f['asset_name']} | {f['title']} | {f.get('cause', '')} |"
+                for f in d.findings_resolved]  # fmt: skip
+        out.append("")
+    if d.findings_regraded:
+        out += ["## Regraded findings", "", "| Before | Now | Asset | Finding | Cause |", "|---|---|---|---|---|"]
+        out += [f"| {f['severity_before']} | {f['severity']} | {f['asset_name']} | {f['title']} | {f['cause']} |"
+                for f in d.findings_regraded]  # fmt: skip
         out.append("")
     if d.added:
         out += ["## Assets added", "", "| Source | Asset | Algorithm | State |", "|---|---|---|---|"]

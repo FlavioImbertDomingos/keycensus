@@ -86,6 +86,13 @@ keycensus_source_coverage{source,scope,state}        expected (-1 if unknown), s
 keycensus_source_assets_not_observed{source}         assets carried forward because they could not be observed
 ```
 
+And which policy pack graded the findings:
+
+```
+keycensus_policy_info{name,version,digest}           the pack the last scan used
+keycensus_policy_review_overdue                      1 when the pack is past its review_by date
+```
+
 `increase(keycensus_change_total{urgency="page"}[15m]) > 0` is the whole alert. `keycensus_diffs_total` matters more than it looks: if it stops advancing, change alerting is blind, and `KeycensusNoChangeDetectionRunning` says so.
 
 `serve` also publishes `/diff.json` and `/changes.json` alongside the report, so a responder can see the classified list without re-running anything.

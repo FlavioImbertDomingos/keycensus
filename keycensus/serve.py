@@ -184,7 +184,7 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
         started = time.perf_counter()
         try:
             if audit:
-                audit.scan_started(config, policy_hash)
+                audit.scan_started(config, policy_hash, policy.ref)
             inv = scan(config, policy, baseline=state.previous)  # carry forward what a failed source missed
             collector.inventory = inv
             collector.scan_count += 1

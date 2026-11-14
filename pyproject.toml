@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keycensus"
-version = "0.16.0"
+version = "0.17.0"
 description = "Cryptographic inventory (CBOM) and key-hygiene scanner for HSMs, KMSs, Vault, AD CS, certificates, TLS and SSH endpoints, with network and cloud discovery"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -46,7 +46,7 @@ keycensus = "keycensus.cli:main"
 include = ["keycensus*"]
 
 [tool.setuptools.package-data]
-keycensus = ["templates/*.html", "data/*.yml", "data/cyclonedx/*.json"]
+keycensus = ["templates/*.html", "data/*.yml", "data/policies/*.yml", "data/cyclonedx/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

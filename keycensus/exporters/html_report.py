@@ -68,7 +68,8 @@ def render(inv: Inventory) -> str:
 
     return tpl.render(
         generated_at=iso(inv.generated_at),
-        policy=inv.policy_name,
+        policy=(inv.policy_pack or {}).get("ref") or inv.policy_name,
+        policy_pack=inv.policy_pack or {},
         summary=inv.summary(),
         findings=[f.to_dict() for f in inv.findings],
         assets=assets,

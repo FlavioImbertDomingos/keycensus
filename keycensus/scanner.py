@@ -72,7 +72,8 @@ def scan(config: Config, policy: Policy | None = None, max_workers: int = 8, bas
                     "unreachable, so they were not observed and their findings stay open", carried)  # fmt: skip
 
     inv = Inventory(generated_at=now, sources=results, policy_name=policy.name)
-    inv.findings = evaluate(inv.assets, policy)
+    inv.findings = evaluate(inv.assets, policy, today=now.date())
+    inv.policy_pack = policy.describe(now.date())
     unobserved = {a.id: a for a in inv.assets if not a.observed}
     for f in inv.findings:
         if f.asset_id in unobserved:

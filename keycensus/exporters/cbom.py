@@ -407,7 +407,8 @@ def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
             "timestamp": iso(inv.generated_at),
             "tools": {"components": [{"type": "application", "name": "keycensus", "version": __version__}]},
             "properties": [
-                {"name": "keycensus:policy", "value": inv.policy_name},
+                {"name": "keycensus:policy", "value": (inv.policy_pack or {}).get("ref") or inv.policy_name},
+                {"name": "keycensus:policyDigest", "value": (inv.policy_pack or {}).get("digest") or ""},
                 {"name": "keycensus:sources", "value": str(len(inv.sources))},
                 {"name": "keycensus:applications", "value": str(len(inv.applications))},
             ]

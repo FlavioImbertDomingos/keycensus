@@ -111,7 +111,7 @@ def scan(
 
     started = time.perf_counter()
     if audit:
-        audit.scan_started(config, policy_sha256(policy_path or config.policy))
+        audit.scan_started(config, policy_sha256(policy_path or config.policy), policy.ref)
     inv = run_scan(config, policy, baseline=baseline if carry_forward else None)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -145,6 +145,10 @@ def scan(
         click.echo(f"unverified: {s['findings_unverified']} finding(s) on {s['assets_unobserved']} asset(s) that "
                    "could not be checked this scan; they stay open")  # fmt: skip
     click.echo("findings: " + ", ".join(f"{k}={v}" for k, v in s["findings_by_severity"].items()))
+    pack = inv.policy_pack or {}
+    click.echo(f"policy: {pack.get('ref', inv.policy_name)}")
+    if pack.get("review_overdue"):
+        click.echo(f"warning: the policy pack was due for review on {pack.get('review_by')}", err=True)
     ex = inv.executive()
     click.echo(f"quantum:  {ex['headline']}")
     for m in ex["milestones"]:
@@ -263,10 +267,15 @@ def serve(config_path, policy_path, port, listen, tls_cert, tls_key, insecure_no
 
 
 @main.command()
-def rules():
-    """List policy rules with their default severity."""
+@click.option("-p", "--policy", "policy_ref", default="default", help="A built-in pack name or a YAML file.")
+def rules(policy_ref):
+    """List policy rules with their severity in a pack (default: the built-in default)."""
+    try:
+        pol = Policy.load(policy_ref)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     click.echo(f"{'rule':32} {'severity':9} enabled")
-    for r in rule_catalogue():
+    for r in rule_catalogue(pol):
         click.echo(f"{r['rule']:32} {r['severity']:9} {r['enabled']}")
 
 
@@ -298,7 +307,113 @@ def validate(config_path):
         click.echo(f"{mark:3} {s.name} ({s.type})")
     if bad:
         raise click.ClickException(f"unknown source types: {', '.join(s.type for s in bad)}")
-    click.echo(f"policy: {config.policy}")
+    try:
+        pack = Policy.load(config.policy)
+    except ValueError as exc:
+        raise click.ClickException(f"policy {config.policy}: {exc}") from exc
+    click.echo(f"policy: {pack.ref} ({pack.source})")
+    if not pack.version:
+        click.echo("warning: the policy pack has no version; scans will record only its digest", err=True)
+    if pack.review_overdue():
+        click.echo(f"warning: the policy pack was due for review on {pack.review_by}", err=True)
+
+
+@main.group()
+def policy():
+    """Policy packs: show what one contains, validate a file, compare two versions."""
+
+
+@policy.command("show")
+@click.argument("pack", default="default")
+@click.option("--as-of", "as_of", type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Evaluate effective dates and schedules on this date instead of today.")  # fmt: skip
+@click.option("--json", "as_json", is_flag=True)
+def policy_show(pack, as_of, as_json):
+    """Show a pack: version, dates, references, and every rule with its severity on that date.
+
+    PACK is a built-in name (default, nist-pqc) or a YAML file."""
+    import json
+
+    try:
+        pol = Policy.load(pack)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if as_of:
+        pol.as_of = as_of.date()
+    info = pol.describe()
+    rules_out = [{"rule": rid, "severity": pol.severity(rid), "in_effect": pol.in_effect(rid),
+                  "effective": str(r.get("effective")) if r.get("effective") else None,
+                  "applies_to": r.get("applies_to"), "references": r.get("references") or []}
+                 for rid, r in pol.rules.items()]  # fmt: skip
+    if as_json:
+        click.echo(json.dumps(info | {"rules": rules_out}, indent=2, default=str))
+        return
+    click.echo(f"{info['ref']}  ({info['source']}" + (f", extends {info['extends']})" if info["extends"] else ")"))
+    click.echo(
+        f"effective {info['effective'] or '-'}, review by {info['review_by'] or '-'}"
+        + ("  (REVIEW OVERDUE)" if info["review_overdue"] else "")
+        + f", evaluated on {info['evaluated_on']}"
+    )
+    click.echo(f"digest {info['digest']}")
+    for ref in info["references"]:
+        click.echo(f"  ref {ref.get('id')}: {ref.get('title', '')} {ref.get('url', '')}".rstrip())
+    click.echo("")
+    click.echo(f"{'rule':34} {'severity':9} {'in effect':10} scope")
+    for r in rules_out:
+        scope = ", ".join(f"{k}={','.join(v)}" for k, v in (r["applies_to"] or {}).items()) or "all"
+        state = "yes" if r["in_effect"] else (f"from {r['effective']}" if r["effective"] else "no")
+        click.echo(f"{r['rule']:34} {r['severity']:9} {state:10} {scope}")
+    if info["upcoming"]:
+        click.echo("\nupcoming:")
+        for u in info["upcoming"]:
+            click.echo(f"  {u['from']}  {u['rule']}: {u['change']}")
+
+
+@policy.command("validate")
+@click.argument("pack")
+def policy_validate(pack):
+    """Check a pack: unknown rules (with a suggestion), bad severities and dates, missing version.
+
+    Exits 1 on an error. A missing version or review date is a warning."""
+    try:
+        pol = Policy.load(pack)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    warnings = []
+    if not pol.version:
+        warnings.append("no version: scans will record only the pack's digest")
+    if not pol.review_by:
+        warnings.append("no review_by date: nothing will prompt a review")
+    elif pol.review_overdue():
+        warnings.append(f"review was due on {pol.review_by}")
+    for w in warnings:
+        click.echo(f"warning: {w}", err=True)
+    click.echo(
+        f"ok: {pol.ref}, {sum(1 for r in pol.rules if pol.in_effect(r))} rules in effect, digest {pol.digest[:12]}"
+    )
+
+
+@policy.command("diff")
+@click.argument("old")
+@click.argument("new")
+def policy_diff(old, new):
+    """What changes between two packs (thresholds, severities, dates, scopes), for review before rollout."""
+    import json
+
+    from .analysis.policy import diff_policies
+
+    try:
+        a, b = Policy.load(old), Policy.load(new)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    changes = diff_policies(a, b)
+    click.echo(f"{a.ref} -> {b.ref}: {len(changes)} change(s)")
+
+    def show(v):
+        return "-" if v is None else json.dumps(v, default=str)
+
+    for c in changes:
+        click.echo(f"  {c['what']}: {show(c['before'])} -> {show(c['after'])}")
 
 
 @main.command()

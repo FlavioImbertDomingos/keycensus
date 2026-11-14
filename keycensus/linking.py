@@ -263,13 +263,13 @@ def link(inv: Inventory, apps: list[Application], auto_match: bool = True) -> li
 
 def unlinked_findings(inv: Inventory, policy: Policy) -> list[Finding]:
     """`unlinked-asset` (info by default): keys/certs no application claims -- only when apps are declared."""
-    if not inv.applications or not policy.enabled("unlinked-asset"):
+    if not inv.applications or not policy.in_effect("unlinked-asset"):
         return []
     out = []
     for a in inv.assets:
         if a.applications or a.kind == "protocol" or (a.kind == "key" and a.key_type == "public-key"):
             continue  # protocols aren't owned; public halves of key pairs are reported via their private key
-        out.append(
+        finding = policy.finalize(
             Finding(
                 rule_id="unlinked-asset",
                 severity=policy.severity("unlinked-asset", "info"),
@@ -284,8 +284,11 @@ def unlinked_findings(inv: Inventory, policy: Policy) -> list[Finding]:
                 asset_name=a.name,
                 source=a.source,
                 controls=["PCI-DSS-4.0:12.3.3"],
-            )
+            ),
+            a,
         )
+        if finding is not None:
+            out.append(finding)
     return out
 
 

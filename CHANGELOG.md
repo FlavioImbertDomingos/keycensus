@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.17.0 — 2026-11-14
+
+**Versioned policy packs.**
+
+- A policy is now a pack with a `version`, an `effective` date, a `review_by` date and `references`. The
+  built-in `default` pack is `default@2026.11.0`. A new built-in pack, `nist-pqc`, grades the quantum
+  findings up on NIST IR 8547's dates (2031-01-01 and 2036-01-01).
+- Rules can take effect on a date (`effective:`), change severity on dates (`schedule:`), apply to some
+  kinds, sources or source types only (`applies_to:`, also at pack level), and cite your own `controls`
+  and `references`. Packs `extend` a built-in pack and list only what changes.
+- keycensus refuses a pack with an unknown rule id (and suggests the closest name), an unknown setting, a
+  bad severity or an unreadable date. A misspelt rule name used to change nothing, silently.
+- Every scan records the pack under `policy_pack` in inventory.json (name, version, digest, source, dates,
+  review status, upcoming dated changes); every finding records `policy: name@version`. The CBOM carries
+  `keycensus:policy` and `keycensus:policyDigest`, the audit log records the pack with `scan.start`, and
+  the HTML report and console show it, with a warning when the review date has passed.
+- `keycensus diff` tags each new and resolved finding with a cause (`asset`, `policy` or `time`), lists
+  findings whose severity changed under `findings_regraded`, and names both packs when the policy changed.
+- New commands: `keycensus policy show [--as-of DATE] [--json]`, `keycensus policy validate`,
+  `keycensus policy diff OLD NEW`. `keycensus rules` takes `--policy`. `keycensus validate` loads the pack.
+- Metrics `keycensus_policy_info` and `keycensus_policy_review_overdue`, and the alert
+  `KeycensusPolicyReviewOverdue`.
+- The audit log's policy hash for a built-in pack named in the config is now that pack's, not always the
+  default's.
+
 ## 0.16.0 — 2026-11-06
 
 **The Kubernetes collector against a real cluster in CI, and CBOM components Dependency-Track keeps apart.**

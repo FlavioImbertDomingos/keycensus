@@ -41,6 +41,14 @@ groups:
           summary: "Inventory source {{ $labels.source }} ({{ $labels.type }}) scans only part of its scope"
           description: "Some accounts, regions, vaults, namespaces or paths could not be scanned (see keycensus_source_coverage). Assets there are carried forward as not observed and their findings are not re-verified."
 
+      - alert: KeycensusPolicyReviewOverdue
+        expr: keycensus_policy_review_overdue == 1
+        for: 1d
+        labels: {severity: info}
+        annotations:
+          summary: "The keycensus policy pack is past its review date"
+          description: "Findings are graded by a pack nobody has confirmed since its review_by date. Review it, bump its version and set a new review_by."
+
       - alert: KeycensusCriticalFinding
         expr: keycensus_findings_by_severity{severity="critical"} > 0
         labels: {severity: critical}
