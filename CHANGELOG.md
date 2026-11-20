@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.21.0 — 2026-11-19
+
+**`keycensus init`, PyPI, Homebrew and single-file binaries.**
+
+- `keycensus init` lists the source types, marks the ones the machine looks set up for, asks the few settings
+  each needs, and writes the config. Secrets are never asked for: it asks which environment variable holds
+  each one and checks that it is set. It then tests every source with `doctor`, names the extra a missing
+  library needs, and runs the first scan. `-s TYPE`, `-y`, `--no-scan`, `--force`, `-o`, `--out-dir`.
+- A release workflow (`.github/workflows/release.yml`) runs on `v*` tags: wheel and sdist, single-file
+  binaries for Linux x86_64 (built on Debian 11, glibc 2.31) and macOS arm64, each installed on a clean machine
+  and run through `init` and a scan (`packaging/smoke.sh`); publish to PyPI by trusted publishing; binaries,
+  `SHA256SUMS`, build provenance and a Homebrew formula attached to the GitHub release.
+- `packaging/build-binary.sh` builds the binary with PyInstaller, with every optional collector library.
+- Package metadata: SPDX license expression, project URLs, classifiers. The README diagram uses an absolute
+  URL so it shows on PyPI. docs/INSTALL.md.
+
 ## 0.20.0 — 2026-11-19
 
 **SARIF output, and observed use tested against a real Vault.**

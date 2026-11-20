@@ -108,7 +108,10 @@ with a default filename. The serve loop picks up new formats automatically if yo
 | `keycensus/analysis/policy.py` | rules engine + policy loading/merging |
 | `keycensus/analysis/controls.py` | control catalogue (PCI, NIST) |
 | `keycensus/analysis/executive.py` | executive summary: quantum-vulnerable share and milestones from docs/PQC-TIMELINE.md |
-| `keycensus/exporters/` | json, csv, cbom, html_report (+ `templates/report.html`), prometheus |
+| `keycensus/exporters/` | json, csv, cbom, sarif, html_report (+ `templates/report.html`), prometheus |
+| `keycensus/identity.py` | the same certificate or key in several places as one asset; relationships |
+| `keycensus/usage.py` | observed use: CloudTrail, Vault audit, Key Vault and Cloud Audit Logs readers |
+| `keycensus/init.py` | `keycensus init`: questions per source type, environment detection, the config it writes |
 | `keycensus/scanner.py` | orchestration |
 | `keycensus/secrets.py` | secret references: env, file, Vault, AWS Secrets Manager, Azure Key Vault, GCP Secret Manager |
 | `keycensus/audit.py` | hash-chained JSON lines audit log and its verifier |
@@ -121,4 +124,5 @@ with a default filename. The serve loop picks up new formats automatically if yo
 | `mock-voltage/` | Flask mock of a Voltage export + an HTTPS port |
 | `tests/` | pytest; `fixtures/` holds the vendored CycloneDX schemas |
 | `deploy/` | least-privilege kits: AWS, Azure, GCP, Vault, AD |
+| `packaging/` | PyInstaller build, the first-run smoke test, the Homebrew formula generator |
 | `prometheus/`, `grafana/` | optional monitoring profile |
