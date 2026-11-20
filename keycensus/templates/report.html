@@ -259,6 +259,53 @@
 </table>
 {% endif %}
 
+{% if usage %}
+<h2>Observed use ({{ usage.rows|length }})</h2>
+<p class="small muted">Who actually called each key, from the key stores' audit logs: not who may use it (that is <em>Used by</em> above), but who did, in the window the logs cover. "Authorised" says whether the caller is among the consumers the key store reports.</p>
+{% if usage.error %}<p class="bad">The audit logs could not be read: {{ usage.error }}</p>{% endif %}
+<table>
+  <thead><tr><th>Log</th><th>Window</th><th>Calls</th><th>Matched to a key</th><th>Keys not in the inventory</th></tr></thead>
+  <tbody>
+  {% for lg in usage.logs %}
+  <tr><td>{{ lg.title }}<div class="small muted">{{ lg.path }}</div></td>
+      <td class="small">{% if lg['from'] %}{{ lg['from'][:10] }} to {{ lg['to'][:10] }}{% else %}no calls{% endif %}</td>
+      <td>{{ lg.events }}</td><td>{{ lg.matched }}</td>
+      <td class="small">{{ lg.unmatched_keys }}{% for u in lg.unmatched[:5] %}<div class="muted">{{ u.key }} ({{ u.events }})</div>{% endfor %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if usage.rows %}
+<table>
+  <thead><tr><th>Key</th><th>Caller</th><th>Operations</th><th>Refused</th><th>Last call</th><th>Authorised</th></tr></thead>
+  <tbody>
+  {% for r in usage.rows %}
+  <tr><td>{{ r.asset }} <span class="small muted">{{ r.source }}</span></td>
+      <td class="small">{{ r.id }}{% if r.name %}<div class="muted">{{ r.name }}</div>{% endif %}{% if r.via %}<div class="muted">via {{ r.via|join(', ') }}</div>{% endif %}{% if r.policies %}<div class="muted">policies {{ r.policies|join(', ') }}</div>{% endif %}</td>
+      <td class="small">{% for op, n in r.operations.items() %}{{ op }} {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      <td>{% if r.denied %}<span class="bad">{{ r.denied }}</span>{% else %}0{% endif %}</td>
+      <td class="small">{{ r.last_seen[:16]|replace('T', ' ') }}</td>
+      <td>{% if r.authorized is none %}<span class="muted">—</span>{% elif r.authorized %}<span class="ok">yes</span>{% else %}<span class="bad">not in Used by</span>{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if usage.not_seen %}
+<h3>Authorised, not seen ({{ usage.not_seen|length }})</h3>
+<p class="small muted">Consumers the key store allows that made no call in the window: candidates for removing a grant or a policy (least privilege). A yearly job or a disaster-recovery role will show up here unless the window covers it.</p>
+<table>
+  <thead><tr><th>Key</th><th>Consumer</th><th>Granted by</th></tr></thead>
+  <tbody>
+  {% for u in usage.not_seen %}<tr><td>{{ u.asset }} <span class="small muted">{{ u.source }}</span></td><td class="small">{{ u.id }}</td><td class="small muted">{{ u.via }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if usage.idle %}
+<h3>Covered, not used ({{ usage.idle|length }})</h3>
+<p class="small muted">Keys a log covers with no successful call in the window (see <code>key-not-used</code> findings).</p>
+<p class="small">{% for k in usage.idle %}{{ k.asset }} <span class="muted">{{ k.source }}{% if k.denied %}, {{ k.denied }} refused{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}
+{% endif %}
+
 {% if applications %}
 <h2>Applications ({{ applications|length }})</h2>
 <p class="small muted">Which application uses which key — from the declared <code>applications:</code> (SBOM-backed) and the consumers each key store reports (IAM principals, grants, Vault policies). The worst finding on any linked asset is the application's exposure.</p>

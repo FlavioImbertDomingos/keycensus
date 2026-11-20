@@ -84,4 +84,14 @@ def scan(config: Config, policy: Policy | None = None, max_workers: int = 8, bas
         from .linking import apply as link_apply
 
         link_apply(inv, config.applications, policy, base_dir=config.base_dir, auto_match=config.auto_match)
+    if config.usage_logs:
+        from .usage import UsageError
+        from .usage import apply as usage_apply
+
+        try:
+            usage_apply(inv, config.usage_logs, policy, base_dir=config.base_dir,
+                        window_days=config.usage_window_days)  # fmt: skip
+        except UsageError as exc:  # a missing log must not cost the scan; the report says what happened
+            log.error("observed use: %s", exc)
+            inv.usage = {"window_days": config.usage_window_days, "logs": [], "error": str(exc)}
     return inv

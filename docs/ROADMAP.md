@@ -15,7 +15,13 @@ Every item moves through four stages. The roadmap names the stage an item has re
 | integration-tested | Tested against a real implementation of the system it talks to: a real Vault, SoftHSM, OpenLDAP, files made by `keytool` or `ssh-keygen`, a certified OIDC provider, or a vendor emulator where the table says so. |
 | field-validated | Run against a real production estate by someone other than the author, with the result reported back. |
 
-## Now: 0.18.0, asset identity and relationships
+## Now: 0.19.0, observed use
+
+| Item | Stage | Acceptance criterion |
+|---|---|---|
+| Observed use from audit logs | implemented | CloudTrail, Vault audit device, Azure Key Vault `AuditEvent` and Google Cloud Audit Logs are read from files and matched to keys; each key reports who called it, which operations, how many calls, refused calls, first and last call, and the window, apart from "allowed to use" (`used_by`) and "declared" (`applications`). Each caller is compared with the authorised consumers, and authorised consumers that made no call are listed. A key no log covers is reported as unknown, not unused. Tested with recorded log samples. Next: the Vault audit device in the compose smoke test, so the reader runs against a real Vault. See [OBSERVED-USE.md](OBSERVED-USE.md). |
+
+## Shipped in 0.18.0, asset identity and relationships
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
@@ -105,7 +111,6 @@ Built on the 0.12.0 lifecycle, so an outage can never close a ticket or drop a f
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| Observed usage | planned | Optional CloudTrail, Vault audit and cloud audit-log imports, reported apart from "allowed to use" and "declared dependency", with the observation window. |
 | Risk-based PQC migration plan | planned | Per application: data sensitivity, how long it must stay confidential, exposure, owner, replacement support and effort, and why it ranks where it does. Absorbs the earlier "migration plan per quantum-vulnerable key" item. |
 | Deeper code analysis | planned | Language-aware analysis of variables and wrappers, a confidence per result, SARIF output, and accuracy measured on a labelled sample corpus. |
 

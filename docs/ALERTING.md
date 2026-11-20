@@ -100,6 +100,17 @@ keycensus_assets_distinct                            one per certificate, key pa
 keycensus_assets_in_several_places                   identities seen by more than one source or in more than one location
 ```
 
+With audit logs configured ([OBSERVED-USE.md](OBSERVED-USE.md)), what the logs show:
+
+```
+keycensus_assets_usage_covered                       keys an audit log covers
+keycensus_assets_not_used                            covered keys with no successful call in the window
+keycensus_audit_log_calls{log,matched}               calls read, matched to a key in the inventory or not
+```
+
+A rise in `keycensus_audit_log_calls{matched="false"}` means keys are being used that the inventory does not
+hold: an account, region or vault that no source scans.
+
 `increase(keycensus_change_total{urgency="page"}[15m]) > 0` is the whole alert. `keycensus_diffs_total` matters more than it looks: if it stops advancing, change alerting is blind, and `KeycensusNoChangeDetectionRunning` says so.
 
 `serve` also publishes `/diff.json` and `/changes.json` alongside the report, so a responder can see the classified list without re-running anything.

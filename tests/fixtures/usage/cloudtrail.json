@@ -1,0 +1,320 @@
+{
+ "Records": [
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAEXAMPLE:i-0abc",
+    "arn": "arn:aws:sts::111122223333:assumed-role/payments-api/i-0abc",
+    "accountId": "111122223333",
+    "sessionContext": {
+     "sessionIssuer": {
+      "type": "Role",
+      "principalId": "AROAEXAMPLE",
+      "arn": "arn:aws:iam::111122223333:role/payments-api",
+      "accountId": "111122223333",
+      "userName": "payments-api"
+     }
+    }
+   },
+   "eventTime": "2026-11-01T08:00:00Z",
+   "eventSource": "kms.amazonaws.com",
+   "eventName": "Decrypt",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "Decrypt-2026-11-01T08:00:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management",
+   "resources": [
+    {
+     "accountId": "111122223333",
+     "type": "AWS::KMS::Key",
+     "ARN": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    }
+   ]
+  },
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAEXAMPLE:i-0abc",
+    "arn": "arn:aws:sts::111122223333:assumed-role/payments-api/i-0abc",
+    "accountId": "111122223333",
+    "sessionContext": {
+     "sessionIssuer": {
+      "type": "Role",
+      "principalId": "AROAEXAMPLE",
+      "arn": "arn:aws:iam::111122223333:role/payments-api",
+      "accountId": "111122223333",
+      "userName": "payments-api"
+     }
+    }
+   },
+   "eventTime": "2026-11-10T08:00:00Z",
+   "eventSource": "kms.amazonaws.com",
+   "eventName": "Decrypt",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "Decrypt-2026-11-10T08:00:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management",
+   "resources": [
+    {
+     "accountId": "111122223333",
+     "type": "AWS::KMS::Key",
+     "ARN": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    }
+   ]
+  },
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAEXAMPLE:i-0abc",
+    "arn": "arn:aws:sts::111122223333:assumed-role/payments-api/i-0abc",
+    "accountId": "111122223333",
+    "sessionContext": {
+     "sessionIssuer": {
+      "type": "Role",
+      "principalId": "AROAEXAMPLE",
+      "arn": "arn:aws:iam::111122223333:role/payments-api",
+      "accountId": "111122223333",
+      "userName": "payments-api"
+     }
+    }
+   },
+   "eventTime": "2026-11-18T08:00:00Z",
+   "eventSource": "kms.amazonaws.com",
+   "eventName": "Decrypt",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "Decrypt-2026-11-18T08:00:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management",
+   "resources": [
+    {
+     "accountId": "111122223333",
+     "type": "AWS::KMS::Key",
+     "ARN": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    }
+   ]
+  },
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAEXAMPLE:i-0abc",
+    "arn": "arn:aws:sts::111122223333:assumed-role/payments-api/i-0abc",
+    "accountId": "111122223333",
+    "sessionContext": {
+     "sessionIssuer": {
+      "type": "Role",
+      "principalId": "AROAEXAMPLE",
+      "arn": "arn:aws:iam::111122223333:role/payments-api",
+      "accountId": "111122223333",
+      "userName": "payments-api"
+     }
+    },
+    "invokedBy": "s3.amazonaws.com"
+   },
+   "eventTime": "2026-11-15T09:30:00Z",
+   "eventSource": "kms.amazonaws.com",
+   "eventName": "GenerateDataKey",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "GenerateDataKey-2026-11-15T09:30:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management",
+   "resources": [
+    {
+     "accountId": "111122223333",
+     "type": "AWS::KMS::Key",
+     "ARN": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    }
+   ]
+  },
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "IAMUser",
+    "principalId": "AIDAEXAMPLE",
+    "arn": "arn:aws:iam::111122223333:user/jdoe",
+    "accountId": "111122223333",
+    "userName": "jdoe"
+   },
+   "eventTime": "2026-11-16T11:00:00Z",
+   "eventSource": "kms.amazonaws.com",
+   "eventName": "Decrypt",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "Decrypt-2026-11-16T11:00:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management",
+   "resources": [
+    {
+     "accountId": "111122223333",
+     "type": "AWS::KMS::Key",
+     "ARN": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    }
+   ],
+   "errorCode": "AccessDenied",
+   "errorMessage": "User is not authorized to perform: kms:Decrypt"
+  },
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAEXAMPLE:i-0abc",
+    "arn": "arn:aws:sts::111122223333:assumed-role/batch-reporting/i-0abc",
+    "accountId": "111122223333",
+    "sessionContext": {
+     "sessionIssuer": {
+      "type": "Role",
+      "principalId": "AROAEXAMPLE",
+      "arn": "arn:aws:iam::111122223333:role/batch-reporting",
+      "accountId": "111122223333",
+      "userName": "batch-reporting"
+     }
+    }
+   },
+   "eventTime": "2026-11-12T10:00:00Z",
+   "eventSource": "kms.amazonaws.com",
+   "eventName": "Encrypt",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "Encrypt-2026-11-12T10:00:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management",
+   "resources": [
+    {
+     "accountId": "111122223333",
+     "type": "AWS::KMS::Key",
+     "ARN": "arn:aws:kms:eu-west-1:111122223333:key/9999ffff-0000-1111-2222-333344445555"
+    }
+   ]
+  },
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAEXAMPLE:i-0abc",
+    "arn": "arn:aws:sts::111122223333:assumed-role/payments-api/i-0abc",
+    "accountId": "111122223333",
+    "sessionContext": {
+     "sessionIssuer": {
+      "type": "Role",
+      "principalId": "AROAEXAMPLE",
+      "arn": "arn:aws:iam::111122223333:role/payments-api",
+      "accountId": "111122223333",
+      "userName": "payments-api"
+     }
+    }
+   },
+   "eventTime": "2026-11-12T10:01:00Z",
+   "eventSource": "kms.amazonaws.com",
+   "eventName": "DescribeKey",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "DescribeKey-2026-11-12T10:01:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management",
+   "resources": [
+    {
+     "accountId": "111122223333",
+     "type": "AWS::KMS::Key",
+     "ARN": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    }
+   ]
+  },
+  {
+   "eventVersion": "1.09",
+   "userIdentity": {
+    "type": "AssumedRole",
+    "principalId": "AROAEXAMPLE:i-0abc",
+    "arn": "arn:aws:sts::111122223333:assumed-role/payments-api/i-0abc",
+    "accountId": "111122223333",
+    "sessionContext": {
+     "sessionIssuer": {
+      "type": "Role",
+      "principalId": "AROAEXAMPLE",
+      "arn": "arn:aws:iam::111122223333:role/payments-api",
+      "accountId": "111122223333",
+      "userName": "payments-api"
+     }
+    }
+   },
+   "eventTime": "2026-11-12T10:02:00Z",
+   "eventSource": "s3.amazonaws.com",
+   "eventName": "GetObject",
+   "awsRegion": "eu-west-1",
+   "sourceIPAddress": "10.0.1.15",
+   "userAgent": "aws-sdk-java/2.25",
+   "requestParameters": {
+    "encryptionAlgorithm": "SYMMETRIC_DEFAULT"
+   },
+   "responseElements": null,
+   "eventID": "GetObject-2026-11-12T10:02:00Z",
+   "readOnly": true,
+   "eventType": "AwsApiCall",
+   "managementEvent": true,
+   "recipientAccountId": "111122223333",
+   "eventCategory": "Management"
+  }
+ ]
+}

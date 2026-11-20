@@ -280,6 +280,18 @@ def _props(asset: CryptoAsset) -> list[dict]:
         )
     for app in asset.applications:
         out.append({"name": "keycensus:application", "value": app})
+    use = asset.observed_use
+    if use is not None:
+        w = use.get("window") or {}
+        out.append({"name": "keycensus:observedUseWindow", "value": f"{w.get('from') or ''}/{w.get('to') or ''}"})
+        out.append({"name": "keycensus:observedUseEvents", "value": str(use.get("succeeded", 0))})
+        for p in use.get("principals") or []:
+            ops = ",".join(f"{k}={v}" for k, v in sorted(p["operations"].items()))
+            auth = {True: "authorized", False: "not in used_by", None: "no consumers recorded"}[p.get("authorized")]
+            out.append({"name": "keycensus:observedUse",
+                        "value": f"{p['id']} {ops or 'refused'} last={p['last_seen']} ({auth})"})  # fmt: skip
+        for u in use.get("authorized_not_seen") or []:
+            out.append({"name": "keycensus:authorizedNotSeen", "value": f"{u['id']} ({u.get('via')})"})
     return out
 
 
@@ -440,6 +452,13 @@ def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
                 {"name": "keycensus:policyDigest", "value": (inv.policy_pack or {}).get("digest") or ""},
                 {"name": "keycensus:sources", "value": str(len(inv.sources))},
                 {"name": "keycensus:applications", "value": str(len(inv.applications))},
+            ]
+            + [
+                {
+                    "name": f"keycensus:auditLog:{lg['type']}",
+                    "value": f"{lg['path']} {lg['from'] or ''}/{lg['to'] or ''}",
+                }
+                for lg in (inv.usage or {}).get("logs") or []
             ]
             + [
                 {

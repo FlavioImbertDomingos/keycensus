@@ -53,6 +53,13 @@ sources:
 `_gcp_secret` (Secret Manager) works the same way. Fetched values are cached for `cache_seconds`
 (default 300). The audit log records which reference each source used, never the value.
 
+### Audit logs for observed use
+
+Reading audit logs ([OBSERVED-USE.md](OBSERVED-USE.md)) needs no permission on the key stores: keycensus reads
+files. It needs read access to wherever the logs land (the CloudTrail bucket, the Vault audit file, the Key
+Vault diagnostic storage account, a Cloud Logging sink). Those logs name who called which key, so treat the
+copies keycensus reads like the rest of its inputs.
+
 ## Who can read what keycensus produces
 
 The outputs are a map of every key you own and what is wrong with it. `keycensus serve` therefore

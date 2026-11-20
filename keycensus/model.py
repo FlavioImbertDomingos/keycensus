@@ -115,6 +115,10 @@ class CryptoAsset:
     used_by: list[dict[str, str]] = field(default_factory=list)
     # applications linked to this asset (names), filled by keycensus.linking
     applications: list[str] = field(default_factory=list)
+    # who actually called the key, from the key store's audit log (keycensus.usage). None: no log covers the
+    # key. Otherwise the log window, one entry per principal (operations, counts, refused calls, first and last
+    # call, whether used_by authorises it) and authorized_not_seen, the authorised consumers that did not call.
+    observed_use: dict[str, Any] | None = None
     # Was the asset seen in this scan? False when it was carried forward from the previous scan because its
     # source failed or the part of the source that holds it could not be scanned: it still exists as far as
     # anyone knows, but nobody has looked. last_observed is when it was last actually seen.
@@ -396,6 +400,7 @@ class Inventory:
     policy_name: str = "default"
     applications: list[Application] = field(default_factory=list)
     policy_pack: dict[str, Any] | None = None  # Policy.describe(): version, digest, dates, upcoming changes
+    usage: dict[str, Any] | None = None  # the audit logs read for observed use (keycensus.usage), if any
 
     @property
     def assets(self) -> list[CryptoAsset]:
@@ -419,6 +424,7 @@ class Inventory:
             sources=sources,
             policy_name=str(d.get("policy", "default")),
             policy_pack=d.get("policy_pack"),
+            usage=d.get("usage"),
         )
         fnames = {f.name for f in Finding.__dataclass_fields__.values()}
         inv.findings = [Finding(**{k: v for k, v in f.items() if k in fnames}) for f in d.get("findings") or []]
@@ -438,6 +444,7 @@ class Inventory:
             by_kind[a.kind] = by_kind.get(a.kind, 0) + 1
             by_alg[a.display_algorithm] = by_alg.get(a.display_algorithm, 0) + 1
         linked = sum(1 for a in self.assets if a.applications)
+        covered = [a for a in self.assets if a.observed_use is not None]
         from .identity import group, relationships  # noqa: PLC0415  (identity imports model)
 
         idents = group(self.assets)
@@ -456,6 +463,10 @@ class Inventory:
             "applications": len(self.applications),
             "assets_linked": linked,
             "assets_unlinked": len(self.assets) - linked if self.applications else None,
+            # observed use (keycensus.usage): None when no audit log was read
+            "assets_usage_covered": len(covered) if self.usage else None,
+            "assets_used": sum(1 for a in covered if a.observed_use.get("succeeded")) if self.usage else None,
+            "assets_not_used": sum(1 for a in covered if not a.observed_use.get("succeeded")) if self.usage else None,
             "findings": len(self.findings),
             "findings_by_severity": by_sev,
             "assets_by_kind": by_kind,
@@ -502,6 +513,7 @@ class Inventory:
                 for s in self.sources
             ],
             "applications": [a.to_dict() for a in self.applications],
+            "usage": self.usage,
             "assets": [a.to_dict() | {"identity": idx[a.id]} for a in self.assets],
             # identities with more than one record; every asset above names its identity
             "identities": [i.to_dict() for i in idents if len(i.asset_ids) > 1],

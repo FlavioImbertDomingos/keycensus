@@ -71,6 +71,11 @@ the identity id (`ki-...`), `group` lists its sources, and `evidence.occurrences
 A certificate also `dependsOn` the key it certifies and the CA certificate that issued it.
 [IDENTITY.md](IDENTITY.md) explains how records are matched.
 
+When audit logs are read (from 0.19.0), a key also carries `keycensus:observedUseWindow`,
+`keycensus:observedUseEvents`, one `keycensus:observedUse` property per caller and one
+`keycensus:authorizedNotSeen` per authorised consumer that made no call. See
+[OBSERVED-USE.md](OBSERVED-USE.md).
+
 ## Extra properties
 
 Anything CycloneDX has no field for is carried as `properties` with a `keycensus:` prefix:

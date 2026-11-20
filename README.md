@@ -14,7 +14,7 @@ report a human can read, Prometheus metrics. **What just got worse** — every r
 so a key that became exportable pages someone instead of waiting for an audit. **What breaks if this key is
 revoked** — your SBOMs joined to the keys each application actually uses.
 
-<img width="1233" alt="Who uses this key: inferred evidence from key stores, AD CS and Kubernetes, declared evidence from SBOMs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
+<img width="1233" alt="Who uses this key: inferred evidence from key stores, AD CS and Kubernetes, declared evidence from SBOMs, observed use from audit logs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
 
 
 <img width="791" height="795" alt="keycensus HTML report: findings ranked by severity, each naming the asset, the rule and the PCI DSS / NIST control it maps to" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
@@ -260,6 +260,7 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | `manifest.json` + `.sig` (+ `.tsr`) | Assessors, evidence | With `signing:`: the SHA-256 of every output, an Ed25519 signature over them, and with `signing.timestamp` an RFC 3161 timestamp on the signature; `keycensus verify` checks it |
 | `audit.jsonl` | Security, assessors | With `audit:`: every scan, config change, report read (by token name), refused request and webhook, hash-chained |
 | Applications (in all of the above) | Incident response, ownership | `applications:` + SBOMs → which app uses which key; CBOM gets `application` components with `dependsOn` → keys; `unlinked-asset` findings for orphans |
+| Observed use (in all of the above) | Least privilege, retiring keys | `usage:` + CloudTrail, Vault audit, Key Vault `AuditEvent` or Google Cloud Audit Logs → who called each key, apart from who may; `key-not-used` findings |
 
 ```bash
 keycensus scan -c keycensus.yml -o out --baseline last/inventory.json --fail-on-new high   # exit 3 on new high+ findings
@@ -268,6 +269,7 @@ keycensus keygen --out keycensus-signing && keycensus verify out --public-key ke
 keycensus audit verify /var/log/keycensus/audit.jsonl                                       # check the audit chain
 keycensus diff last/inventory.json out/inventory.json -f markdown                           # or text / json
 keycensus link -c keycensus.yml -i out/inventory.json --sbom sboms/payments-api.cdx.json -o out   # SBOM ↔ CBOM
+keycensus usage -i out/inventory.json --log cloudtrail:logs/cloudtrail/ -o out                 # who actually used each key
 keycensus upload dtrack --url https://dtrack.corp --project hsm-estate --version 2026-09-02 --cbom out/cbom.json
 helm install keycensus ./helm/keycensus -f my-values.yaml                                    # Deployment and/or CronJob
 ```
@@ -329,7 +331,10 @@ radius nobody has mapped. The CBOM gets `application` components with `dependsOn
 CycloneDX tools, Dependency-Track 5.1 and later among them, can show the graph.
 
 **Read it honestly.** These are *authorisations*, not observed use — a principal that may use a key is listed
-whether or not it ever did. That is what least-privilege review wants, and it is not telemetry. Scope also
+whether or not it ever did. That is what least-privilege review wants, and it is not telemetry. For who
+actually called a key, point keycensus at the key store's audit log (CloudTrail, the Vault audit device, Key
+Vault `AuditEvent`, Google Cloud Audit Logs): each key then reports its callers, operations and last call in
+the log's window, and the authorised consumers that never called it ([docs/OBSERVED-USE.md](docs/OBSERVED-USE.md)). Scope also
 differs by platform: AWS, GCP and Vault authorize per key; **Azure authorizes per vault**, so every asset in a
 vault carries the same consumer list. Details: [docs/LINKING.md](docs/LINKING.md).
 
@@ -372,6 +377,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/QUALIFICATION.md](docs/QUALIFICATION.md) — what each collector was tested against, and its known limits
 - [docs/DOCTOR.md](docs/DOCTOR.md) — `keycensus doctor`: what each source reached, what it missed, and the grant that fixes it
 - [docs/IDENTITY.md](docs/IDENTITY.md) — the same certificate or key in several places as one asset, and how assets relate
+- [docs/OBSERVED-USE.md](docs/OBSERVED-USE.md) — who actually called each key, from CloudTrail, Vault, Key Vault and Google Cloud audit logs
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, with stages and acceptance criteria
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
@@ -415,8 +421,8 @@ the CycloneDX Cryptography Registry. 0.14.0 adds `keycensus doctor` and breaks d
 PKCS#11, AD CS, CipherTrust and KeySafe 5. 0.15.0 adds a Dependency-Track round-trip in CI, and 0.16.0
 runs the Kubernetes collector against kind with cert-manager. 0.17.0 makes the policy a versioned pack that
 every scan and finding records. 0.18.0 treats the same certificate or key pair seen in several places as one
-asset, and links certificates to their keys and issuers. Next come observed usage, SARIF output, `init` and
-packaging, then the agent and central server, the web UI with owners and risk exceptions, and Jira and
+asset, and links certificates to their keys and issuers. 0.19.0 reads the key stores' audit logs to show who
+actually used each key, next to who may. Next come SARIF output, `init` and packaging, then the agent and central server, the web UI with owners and risk exceptions, and Jira and
 ServiceNow tickets.
 
 Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on

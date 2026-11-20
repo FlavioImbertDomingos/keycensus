@@ -657,6 +657,58 @@ def link(config_path, inventory_path, output_dir, formats, policy_path, sboms, c
         click.echo(f"\n{s['assets_unlinked']} asset(s) not linked to any application")
 
 
+@main.command()
+@click.option("-c", "--config", "config_path", default=None, type=click.Path(exists=True),
+              help="Config with a usage: block (sources are not scanned). Optional with --log.")  # fmt: skip
+@click.option("-i", "--inventory", "inventory_path", default="out/inventory.json", show_default=True,
+              type=click.Path(exists=True), help="A previous scan.")  # fmt: skip
+@click.option("--log", "log_specs", multiple=True, metavar="TYPE:PATH",
+              help="An audit log to read, e.g. cloudtrail:logs/ct/ or vault-audit:/var/log/vault/audit.log. "
+                   "Types: cloudtrail, vault-audit, azure-keyvault, gcp-audit. Repeatable.")  # fmt: skip
+@click.option("--window-days", type=click.IntRange(min=1), default=None,
+              help="Only calls in the last N days before the scan. "
+                   "Default: usage.window_days, else the whole log.")  # fmt: skip
+@click.option("-o", "--output-dir", default="./out", show_default=True)
+@click.option("-f", "--format", "formats", multiple=True, default=("json", "cbom", "csv", "html"),
+              type=click.Choice(sorted(FORMATS)), show_default=True)  # fmt: skip
+@click.option("-p", "--policy", "policy_path", default=None)
+@click.option("--cbom-version", type=click.Choice(["1.6", "1.7"]), default=None,
+              help="CycloneDX version of cbom.json. Default: cbom.version in the config, else 1.6.")  # fmt: skip
+def usage(config_path, inventory_path, log_specs, window_days, output_dir, formats, policy_path, cbom_version):
+    """Read key store audit logs: who actually used each key, next to who may use it."""
+    from .diff import load_inventory_dict
+    from .model import Inventory
+    from .usage import LOG_TITLES, UsageError, apply, parse_log_spec
+
+    try:
+        config = load(config_path) if config_path else None
+        policy = Policy.load(policy_path or (config.policy if config else "default"))
+        inv = Inventory.from_dict(load_inventory_dict(inventory_path))
+        logs = list(config.usage_logs if config else []) + [parse_log_spec(s) for s in log_specs]
+        if not logs:
+            raise click.ClickException("no audit log: add usage: logs to the config or pass --log TYPE:PATH")
+        window = window_days or (config.usage_window_days if config else None)
+        apply(inv, logs, policy, base_dir=config.base_dir if config else None, window_days=window)
+    except (ConfigError, UsageError, ValueError, FileNotFoundError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    version = cbom_version or (config.cbom_version if config else "1.6")
+    for fmt in formats:
+        _, filename = FORMATS[fmt]
+        (out / filename).write_text(render_format(fmt, inv, version))
+        click.echo(f"wrote {out / filename}", err=True)
+    click.echo("")
+    for lg in (inv.usage or {}).get("logs") or []:
+        span = f"{(lg['from'] or '')[:10]} to {(lg['to'] or '')[:10]}" if lg["from"] else "no calls"
+        click.echo(f"  {LOG_TITLES[lg['type']]:28} {lg['events']:6} calls  {lg['matched']:6} matched  {span}")
+        if lg["unmatched_keys"]:
+            click.echo(f"  {'':28} {lg['unmatched_keys']} key(s) used but not in the inventory")
+    s = inv.summary()
+    click.echo(f"\n{s['assets_usage_covered']} key(s) covered by a log: {s['assets_used']} used, "
+               f"{s['assets_not_used']} not used in the window")  # fmt: skip
+
+
 @main.group()
 def upload():
     """Push scan results somewhere else."""
