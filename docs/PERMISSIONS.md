@@ -63,7 +63,7 @@ copies keycensus reads like the rest of its inputs.
 ## Who can read what keycensus produces
 
 The outputs are a map of every key you own and what is wrong with it. `keycensus serve` therefore
-requires a token for `/report.html`, `/cbom.json`, `/inventory.json`, `/findings.json`, the diffs and
+requires a token for `/report.html`, `/cbom.json`, `/inventory.json`, `/findings.json`, `/findings.sarif`, the diffs and
 the signed manifest. `/metrics`, `/healthz` and `/livez` stay public by default so Prometheus and
 Kubernetes probes need nothing.
 

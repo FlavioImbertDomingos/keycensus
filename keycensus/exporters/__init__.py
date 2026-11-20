@@ -1,4 +1,4 @@
-from . import cbom, csv_export, html_report, json_export
+from . import cbom, csv_export, html_report, json_export, sarif
 
 
 def render_format(fmt: str, inv, cbom_version: str = cbom.DEFAULT_VERSION) -> str:
@@ -11,6 +11,7 @@ FORMATS = {
     "cbom": (cbom.render, "cbom.json"),
     "csv": (csv_export.render, "inventory.csv"),
     "html": (html_report.render, "report.html"),
+    "sarif": (sarif.render, "keycensus.sarif"),
 }
 
-__all__ = ["FORMATS", "cbom", "csv_export", "html_report", "json_export", "render_format"]
+__all__ = ["FORMATS", "cbom", "csv_export", "html_report", "json_export", "render_format", "sarif"]

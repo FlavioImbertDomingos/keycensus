@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.20.0 — 2026-11-19
+
+**SARIF output, and observed use tested against a real Vault.**
+
+- `-f sarif` writes `keycensus.sarif` (SARIF 2.1.0), and `keycensus serve` serves `/findings.sarif`. One rule
+  per finding type and one result per finding; code findings point at file and line, relative to the directory
+  the scan runs in; findings on keys in key stores carry a logical location. Levels and `security-severity`
+  follow GitHub code scanning's bands, and each result has a stable fingerprint. See docs/SARIF.md.
+- The compose smoke test in CI turns on Vault's file audit device, makes Transit calls with two tokens (one
+  refused) and checks what `keycensus usage` reports. Observed use is now integration-tested for Vault.
+- The OASIS SARIF 2.1.0 schema is in the test fixtures, and every SARIF test validates against it.
+
 ## 0.19.0 — 2026-11-19
 
 **Observed use from audit logs.**
