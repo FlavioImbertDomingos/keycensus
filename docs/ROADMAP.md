@@ -25,23 +25,23 @@ Every item moves through four stages. The roadmap names the stage an item has re
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| Kubernetes against a real cluster | implemented | The collector runs in CI against kind with cert-manager: a TLS secret mounted by a Deployment, an Opaque secret with a key, a Certificate with `rotationPolicy: Never`, and a namespace the service account may not read. RBAC is `deploy/kubernetes/keycensus-reader.yaml` narrowed to RoleBindings. The scan must find each asset and nothing from the forbidden namespace, and `doctor` must name that namespace and the file. Becomes integration-tested when the job has passed on GitHub Actions. |
-| CBOM components that Dependency-Track does not merge | implemented | Asset components carry their source as `group`; the Dependency-Track job fails if any asset component is merged on import. |
+| Kubernetes against a real cluster | integration-tested | The collector runs in CI against kind with cert-manager: a TLS secret mounted by a Deployment, an Opaque secret with a key, a Certificate with `rotationPolicy: Never`, and a namespace the service account may not read. RBAC is `deploy/kubernetes/keycensus-reader.yaml` narrowed to RoleBindings. The scan must find each asset and nothing from the forbidden namespace, and `doctor` must name that namespace and the file. |
+| CBOM components that Dependency-Track does not merge | integration-tested | Asset components carry their source as `group`; the Dependency-Track job fails if any asset component is merged on import. |
 
 ## Shipped in 0.15.0, Dependency-Track round-trip
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| Downstream ingestion tests | implemented | A CBOM with applications, relationships and findings is uploaded into Dependency-Track 5.1 in CI, exported back and compared; the job records what survives (components, properties, dependency edges) and what does not (`cryptoProperties`, findings), and checks that 4.14 refuses the import instead of half doing it. Becomes integration-tested when the job has passed on GitHub Actions. |
+| Downstream ingestion tests | integration-tested | A CBOM with applications, relationships and findings is uploaded into Dependency-Track 5.1 in CI, exported back and compared; the job records what survives (components, properties, dependency edges) and what does not (`cryptoProperties`, findings), and checks that 4.14 refuses the import instead of half doing it. |
 
-When that job passes, CycloneDX 1.7 below also becomes integration-tested: Dependency-Track 5.1 is then a
-real tool reading keycensus's 1.7 output.
+The job has passed on GitHub Actions since 0.16.0, against Dependency-Track 5.1.2 and 4.14.6, which also
+makes CycloneDX 1.7 below integration-tested: a real tool reads keycensus's 1.7 output.
 
 ## Shipped in 0.14.0, doctor
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| `keycensus doctor` | implemented | For each source: what it reached, which scopes were partial and why, which permission is missing and the file that grants it. Runs the sources or reads an existing inventory.json. Becomes integration-tested when the compose smoke test's doctor steps (real Vault and SoftHSM) have passed in CI. See [DOCTOR.md](DOCTOR.md). |
+| `keycensus doctor` | integration-tested | For each source: what it reached, which scopes were partial and why, which permission is missing and the file that grants it. Runs the sources or reads an existing inventory.json. CI runs it against the compose demo (a real Vault and SoftHSM), and with a Vault token whose policy lacks one PKI path. See [DOCTOR.md](DOCTOR.md). |
 | Coverage for Vault, PKCS#11, AD CS, CipherTrust, KeySafe 5 | implemented (Vault, AD CS, CipherTrust, KeySafe 5), integration-tested (PKCS#11, SoftHSM) | Vault mounts and items, PKCS#11 tokens and objects, AD CS directory and exports, CipherTrust and KeySafe 5 listings report what they scanned and what they could not, so a denied mount or a missing export makes the source partial instead of failed or silently short. |
 
 ## Shipped in 0.12.0, trustworthy results
@@ -81,7 +81,7 @@ Voltage reads export files and stays complete-or-failed.
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| CycloneDX 1.7, keeping 1.6 | implemented (0.13.0); read by Dependency-Track 5.1 in CI from 0.15.0 | `--cbom-version 1.7` output validates against the 1.7 schema; algorithm names are normalised with the CycloneDX Cryptography Registry. |
+| CycloneDX 1.7, keeping 1.6 | integration-tested (0.13.0; read back by Dependency-Track 5.1.2 in CI) | `--cbom-version 1.7` output validates against the 1.7 schema; algorithm names are normalised with the CycloneDX Cryptography Registry. |
 | NIST / CISA minimum elements | planned | A mapping table from the CBOM to the minimum elements, once the guidance under EO 14412 is published. |
 
 ## Then: teams and scale

@@ -36,8 +36,9 @@ to the job summary.
 | Findings (the CBOM's `vulnerabilities`) | not imported | |
 | CycloneDX 1.7 | accepted (5.1.0 and later; also 4.14.4 and later, for the BOM format only) | |
 
-The table comes from Dependency-Track's source code (5.1.2 and 4.14.6), and the CI job checks the 5.1
-column on every push. Use Dependency-Track 5.1 or later for a CBOM.
+The table was first read from Dependency-Track's source code (5.1.2 and 4.14.6). The CI job confirms both
+columns on every push: 5.1.2 keeps components, properties and edges and drops `cryptoProperties` and
+findings, and 4.14.6 imports nothing. Use Dependency-Track 5.1 or later for a CBOM.
 
 Two consequences for how you use it:
 
