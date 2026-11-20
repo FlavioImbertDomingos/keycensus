@@ -95,6 +95,10 @@ class CryptoAsset:
     signature_hash: str | None = None  # SHA256 / SHA1 / MD5
     self_signed: bool | None = None
     fingerprint_sha256: str | None = None
+    # SHA-256 of the DER SubjectPublicKeyInfo, for certificates and for keys whose public half the collector
+    # can see. The same value on a certificate and a key means the certificate is for that key; the same
+    # value on two keys means one key pair seen in two places (keycensus.identity).
+    public_key_sha256: str | None = None
     # protocol-only
     protocol: str | None = None  # TLS
     protocol_version: str | None = None  # TLSv1.2
@@ -434,8 +438,15 @@ class Inventory:
             by_kind[a.kind] = by_kind.get(a.kind, 0) + 1
             by_alg[a.display_algorithm] = by_alg.get(a.display_algorithm, 0) + 1
         linked = sum(1 for a in self.assets if a.applications)
+        from .identity import group, relationships  # noqa: PLC0415  (identity imports model)
+
+        idents = group(self.assets)
         return {
             "assets": len(self.assets),
+            # the same certificate or key pair seen in several places counts once here (keycensus.identity)
+            "assets_distinct": len(idents),
+            "assets_in_several_places": sum(1 for i in idents if i.places > 1),
+            "relationships": len(relationships(self.assets, idents)),
             "sources": len(self.sources),
             "sources_failed": sum(1 for s in self.sources if s.error),
             "sources_partial": sum(1 for s in self.sources if s.status == SCAN_PARTIAL),
@@ -466,6 +477,10 @@ class Inventory:
         return summarize(self, today=self.generated_at)
 
     def to_dict(self) -> dict[str, Any]:
+        from .identity import group, index, relationships  # noqa: PLC0415
+
+        idents = group(self.assets)
+        idx = index(idents)
         return {
             "tool": "keycensus",
             "generated_at": iso(self.generated_at),
@@ -487,6 +502,9 @@ class Inventory:
                 for s in self.sources
             ],
             "applications": [a.to_dict() for a in self.applications],
-            "assets": [a.to_dict() for a in self.assets],
+            "assets": [a.to_dict() | {"identity": idx[a.id]} for a in self.assets],
+            # identities with more than one record; every asset above names its identity
+            "identities": [i.to_dict() for i in idents if len(i.asset_ids) > 1],
+            "relationships": relationships(self.assets, idents),
             "findings": [f.to_dict() for f in self.findings],
         }

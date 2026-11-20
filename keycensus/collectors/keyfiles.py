@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
 
 from ..model import KIND_CERTIFICATE, KIND_KEY, STATE_ACTIVE, STATE_DEACTIVATED, STATE_UNKNOWN, utcnow
-from .x509util import certificate_fields, describe_public_key
+from .x509util import certificate_fields, describe_public_key, spki_sha256
 
 WELL_KNOWN_PASSWORDS = ["", "changeit", "changeme", "password", "secret", "123456"]
 PEM_BLOCK = re.compile(rb"-----BEGIN ([A-Z0-9 ]+)-----(.*?)-----END \1-----", re.DOTALL)
@@ -80,6 +80,7 @@ def _key_fields(key, key_type: str, name: str, **extra) -> dict[str, Any]:
         "state": STATE_UNKNOWN,
         "exportable": True if private else None,
         "hardware_backed": False,
+        "public_key_sha256": spki_sha256(key),
         "extra": {k: v for k, v in extra.items() if v is not None},
     }
 
@@ -521,6 +522,7 @@ def _ssh_cert_entry(line: str, name: str, role: str | None) -> Entry:
         "subject": f"ssh-{ctype}-cert: {', '.join(principals) or '(any principal)'}",
         "issuer": f"ssh-ca {ssh_fingerprint(base64.b64decode(ca_blob))}",
         "self_signed": False, "fingerprint_sha256": hashlib.sha256(blob).hexdigest(),
+        "public_key_sha256": spki_sha256(pub),
         "extra": {"ssh_certificate": ctype, "principals": principals, "serial": cert.serial, "ssh_role": role,
                   "no_expiry": expires is None}})  # fmt: skip
 

@@ -113,6 +113,7 @@ class Diff:
         return {
             "assets_added": len(self.added),
             "assets_removed": len(self.removed),
+            "assets_removed_still_seen_elsewhere": sum(1 for a in self.removed if a.get("elsewhere")),
             "assets_changed": len(self.changed),
             "findings_new": len(self.findings_new),
             "findings_new_by_severity": by_sev,
@@ -159,8 +160,21 @@ class Diff:
 def _brief(a: dict) -> dict:
     return {
         k: a.get(k)
-        for k in ("id", "name", "source", "source_type", "kind", "display_algorithm", "state", "expires", "location")
-    }
+        for k in ("id", "name", "source", "source_type", "kind", "display_algorithm", "state", "expires", "location",
+                  "identity", "elsewhere")
+        if k in a or k not in ("identity", "elsewhere")
+    }  # fmt: skip
+
+
+def _tag_elsewhere(records: list[dict], other: dict[str, dict]) -> None:
+    """Mark each record whose identity is in `other` with the places it is seen there (a copy, not a loss)."""
+    places: dict[str, list[str]] = {}
+    for o in other.values():
+        if o.get("identity"):
+            places.setdefault(o["identity"], []).append(f"{o.get('source')}: {o.get('location') or o.get('name')}")
+    for i, r in enumerate(records):
+        if r.get("identity") in places:
+            records[i] = r | {"elsewhere": sorted(places[r["identity"]])}
 
 
 # ------------------------------------------------------------------ core
@@ -196,6 +210,10 @@ def diff_dicts(before: dict, after: dict) -> Diff:
     for aid in a_assets.keys() & b_assets.keys():
         if a_assets[aid].get("observed") is False and b_assets[aid].get("observed") is not False:
             d.unverified.append(a_assets[aid])
+    # The same certificate or key pair (keycensus.identity) still seen elsewhere: a copy that went away, or a
+    # move from one place to another, not a deletion. Each record keeps the other places it is still seen.
+    _tag_elsewhere(d.removed, a_assets)
+    _tag_elsewhere(d.added, b_assets)
     for aid in a_assets.keys() & b_assets.keys():
         old, new = b_assets[aid], a_assets[aid]
         changes = {}
@@ -316,9 +334,12 @@ def render_text(d: Diff) -> str:
         if items:
             lines += ["", f"{label} ({len(items)}):"]
             lines += [
-                f"  + {a['source']}/{a['name']} [{a.get('display_algorithm')}] {a.get('state', '')}".rstrip()
-                if label == "added"
-                else f"  - {a['source']}/{a['name']} [{a.get('display_algorithm')}]"
+                (
+                    f"  + {a['source']}/{a['name']} [{a.get('display_algorithm')}] {a.get('state', '')}".rstrip()
+                    if label == "added"
+                    else f"  - {a['source']}/{a['name']} [{a.get('display_algorithm')}]"
+                )
+                + (f"  (also seen: {', '.join(a['elsewhere'])})" if a.get("elsewhere") else "")
                 for a in items
             ]
     if d.changed:

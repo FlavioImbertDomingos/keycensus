@@ -81,6 +81,7 @@ from urllib.parse import urlparse
 
 import requests
 from cryptography import x509
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from ..config import SourceConfig
 from ..model import (
@@ -95,7 +96,7 @@ from ..model import (
     CryptoAsset,
 )
 from .base import GAP_DENIED, Collector, gap_kind
-from .x509util import certificate_fields
+from .x509util import certificate_fields, spki_sha256
 
 log = logging.getLogger(__name__)
 
@@ -533,6 +534,7 @@ class AzureKeyVaultCollector(Collector):
             exportable=bool(attrs.get("exportable", False)),
             hardware_backed=hsm,
             fips_validated=hsm,  # documented by Microsoft as FIPS-validated HSMs; certificate via fips_evidence
+            public_key_sha256=jwk_public_key_sha256(jwk),
             location=f"{'Managed HSM' if self.managed_hsm else 'Key Vault'} {urlparse(self.url).hostname}",
             tags={k: str(v) for k, v in (data.get("tags") or {}).items()},
             extra={
@@ -622,3 +624,23 @@ def _ts(value) -> datetime | None:
         return datetime.fromtimestamp(int(value), UTC)
     except (TypeError, ValueError, OSError):
         return None
+
+
+def jwk_public_key_sha256(jwk: dict) -> str | None:
+    """Fingerprint of the public part of an RSA or EC JWK, so the same key pair seen elsewhere (a certificate,
+    a key file) can be recognised. Secret (oct) keys have no public part."""
+
+    def num(field: str) -> int:
+        raw = str(jwk.get(field) or "")
+        return int.from_bytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)), "big")
+
+    kty = str(jwk.get("kty", "")).replace("-HSM", "")
+    try:
+        if kty == "RSA" and jwk.get("n") and jwk.get("e"):
+            return spki_sha256(rsa.RSAPublicNumbers(num("e"), num("n")).public_key())
+        curves = {"P-256": ec.SECP256R1, "P-384": ec.SECP384R1, "P-521": ec.SECP521R1, "P-256K": ec.SECP256K1}
+        if kty == "EC" and jwk.get("crv") in curves and jwk.get("x") and jwk.get("y"):
+            return spki_sha256(ec.EllipticCurvePublicNumbers(num("x"), num("y"), curves[jwk["crv"]]()).public_key())
+    except (ValueError, TypeError):
+        return None
+    return None

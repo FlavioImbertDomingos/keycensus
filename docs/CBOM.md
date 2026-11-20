@@ -66,6 +66,11 @@ RSA-2048" is a graph query.
 `bom-ref`s are stable across scans (`kc-<sha256(source|kind|native_id)[:12]>`), so two CBOMs
 can be diffed.
 
+The same certificate or key pair seen in several places is one component (from 0.18.0): its `bom-ref` is
+the identity id (`ki-...`), `group` lists its sources, and `evidence.occurrences` has one entry per place.
+A certificate also `dependsOn` the key it certifies and the CA certificate that issued it.
+[IDENTITY.md](IDENTITY.md) explains how records are matched.
+
 ## Extra properties
 
 Anything CycloneDX has no field for is carried as `properties` with a `keycensus:` prefix:

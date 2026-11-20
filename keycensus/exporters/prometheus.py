@@ -167,8 +167,16 @@ class InventoryCollector:
             unlinked.add_metric([], float(inv.summary().get("assets_unlinked") or 0))
             yield unlinked
 
+        summ = inv.summary()
+        distinct = GaugeMetricFamily(f"{NS}_assets_distinct", "Distinct certificates and keys (one per identity)")
+        distinct.add_metric([], float(summ["assets_distinct"]))
+        yield distinct
+        multi = GaugeMetricFamily(f"{NS}_assets_in_several_places", "Identities seen in more than one place")
+        multi.add_metric([], float(summ["assets_in_several_places"]))
+        yield multi
+
         assets = GaugeMetricFamily(
-            f"{NS}_assets", "Assets by source, kind, algorithm and quantum class",
+            f"{NS}_assets", "Asset records by source, kind, algorithm and quantum class",
             labels=["source", "kind", "algorithm", "quantum_class"],
         )  # fmt: skip
         counts: dict[tuple, int] = {}

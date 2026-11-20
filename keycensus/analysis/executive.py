@@ -97,11 +97,22 @@ def _today(today: date | datetime | None) -> date:
 
 
 def _population(inv: Inventory) -> list[CryptoAsset]:
-    """Keys and certificates, without the public half of a key pair already counted as its private key."""
+    """Keys and certificates, each counted once: without the public half of a key pair already counted as its
+    private key, and without further copies of a certificate or key pair seen in several places."""
+    from ..identity import identity_key  # noqa: PLC0415
     from .policy import public_halves  # noqa: PLC0415
 
     skip = public_halves(inv.assets)
-    return [a for a in inv.assets if a.kind not in (KIND_PROTOCOL, KIND_ALGORITHM) and a.id not in skip]
+    seen: set[str] = set()
+    out = []
+    for a in inv.assets:
+        if a.kind in (KIND_PROTOCOL, KIND_ALGORITHM) or a.id in skip:
+            continue
+        key = identity_key(a)[0]
+        if key not in seen:
+            seen.add(key)
+            out.append(a)
+    return out
 
 
 def _use(a: CryptoAsset) -> str:
