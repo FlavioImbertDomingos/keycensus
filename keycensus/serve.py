@@ -7,6 +7,7 @@
     /inventory.json     native JSON                         token required
     /cbom.json          CycloneDX CBOM                      token required
     /findings.json      just the findings                   token required
+    /findings.sarif     the findings as SARIF 2.1.0         token required
     /diff.json, /changes.json, /manifest.json(.sig)         token required
 
 The report and the CBOM are a map of every key you own and what is wrong with it, so they need a
@@ -59,7 +60,7 @@ from .changes import render_text as render_changes
 from .config import Config, ConfigError
 from .diff import diff_dicts
 from .diff import render_json as render_diff_json
-from .exporters import cbom, html_report, json_export
+from .exporters import cbom, html_report, json_export, sarif
 from .exporters.prometheus import InventoryCollector
 from .notify import NotifyConfig, send
 from .oidc import Oidc, OidcError, parse_cookies, safe_next
@@ -227,6 +228,7 @@ def _rescan_loop(config: Config, policy: Policy, collector: InventoryCollector, 
                     "application/json",
                     json.dumps([f.to_dict() for f in inv.findings], indent=2),
                 ),
+                "/findings.sarif": ("application/sarif+json", sarif.render(inv)),
                 **change_outputs,
             }
             if signing_key is not None:

@@ -254,6 +254,7 @@ Copy it, change the numbers, pass `--policy`. Full list: [docs/POLICY.md](docs/P
 | `report.html` | Humans | Self-contained, printable, filterable. Opens with an executive summary: the share of quantum-vulnerable keys and certificates, and what must move before each date in [docs/PQC-TIMELINE.md](docs/PQC-TIMELINE.md) |
 | `inventory.json` | Scripts | Everything, including raw source fields; the executive summary as `executive` |
 | `inventory.csv` | Spreadsheets, GRC uploads | One row per asset with findings column |
+| `keycensus.sarif` | GitHub code scanning, other SARIF tools | With `-f sarif`: findings in SARIF 2.1.0; code findings at file and line, so they show on the pull request ([docs/SARIF.md](docs/SARIF.md)) |
 | `/metrics` | Prometheus | Findings by severity/rule/source, key age, cert expiry, quantum class, assets due before each PQC date, **and change counters** |
 | `diff.json` / `diff.md` | Change review, CI gates | With `--baseline previous/inventory.json`: assets added / removed / changed, findings new / resolved, sources broken |
 | `changes.json` | Alerting | Each change classified into a kind with an urgency: what should page, what waits for the weekly digest |
@@ -378,6 +379,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/DOCTOR.md](docs/DOCTOR.md) — `keycensus doctor`: what each source reached, what it missed, and the grant that fixes it
 - [docs/IDENTITY.md](docs/IDENTITY.md) — the same certificate or key in several places as one asset, and how assets relate
 - [docs/OBSERVED-USE.md](docs/OBSERVED-USE.md) — who actually called each key, from CloudTrail, Vault, Key Vault and Google Cloud audit logs
+- [docs/SARIF.md](docs/SARIF.md) — findings as SARIF 2.1.0 for GitHub code scanning
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, with stages and acceptance criteria
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
@@ -422,7 +424,8 @@ PKCS#11, AD CS, CipherTrust and KeySafe 5. 0.15.0 adds a Dependency-Track round-
 runs the Kubernetes collector against kind with cert-manager. 0.17.0 makes the policy a versioned pack that
 every scan and finding records. 0.18.0 treats the same certificate or key pair seen in several places as one
 asset, and links certificates to their keys and issuers. 0.19.0 reads the key stores' audit logs to show who
-actually used each key, next to who may. Next come SARIF output, `init` and packaging, then the agent and central server, the web UI with owners and risk exceptions, and Jira and
+actually used each key, next to who may. 0.20.0 adds SARIF output for GitHub code scanning and tests the
+audit-log reader against a real Vault in CI. Next come `init` and packaging, then the agent and central server, the web UI with owners and risk exceptions, and Jira and
 ServiceNow tickets.
 
 Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on

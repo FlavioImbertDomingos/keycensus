@@ -122,6 +122,14 @@ keycensus reads files and needs no extra permission on the key store. Someone ha
 | Azure Key Vault | A diagnostic setting sending the `AuditEvent` category to a storage account or Log Analytics | The exported JSON |
 | Google Cloud | Data Access audit logs turned on for Cloud KMS (the cryptographic calls are `DATA_READ` entries) | `gcloud logging read` output, or a log sink to Cloud Storage |
 
+## How it is tested
+
+The compose smoke test in CI turns on a file audit device in a real Vault 1.18, makes Transit calls with a
+`payments-api` token (three encrypts, a decrypt, and a refused sign) and an `auth-service` token (a sign), and
+runs `keycensus usage` on the scan and the audit file. It checks the calls per token and key, the policies, the
+refused call, `authorized_not_seen` and `key-not-used`. CloudTrail, Key Vault and Cloud Audit Logs are tested
+on recorded samples in `tests/fixtures/usage/`.
+
 ## Limits
 
 * The window is what the logs hold. A key used once a year (annual re-encryption, a disaster-recovery role)

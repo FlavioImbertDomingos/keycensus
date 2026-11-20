@@ -126,6 +126,47 @@ jobs:
           assert gaps[0]["fix"]["file"] == "deploy/vault/keycensus-policy.hcl"
           assert d["assets"] >= 7, d
           EOF
+      - name: observed use from a real Vault audit device
+        run: |
+          V="docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault vault"
+          $V audit enable file file_path=/tmp/vault-audit.log mode=0644
+          PAY=$($V token create -policy=payments-api -display-name=payments-api -field=token)
+          AUTH=$($V token create -policy=auth-service -display-name=auth-service -field=token)
+          vt() { tok=$1; shift; docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN="$tok" vault vault "$@"; }
+          for i in 1 2 3; do vt "$PAY" write -field=ciphertext transit/encrypt/payments-dek plaintext=aGVsbG8= > ct.txt; done
+          vt "$PAY" write transit/decrypt/payments-dek ciphertext="$(cat ct.txt)" >/dev/null
+          vt "$AUTH" write transit/sign/jwt-ecdsa input=aGVsbG8= >/dev/null
+          if vt "$PAY" write transit/sign/jwt-ecdsa input=aGVsbG8= >/dev/null 2>&1; then
+            echo "payments-api should not be able to sign"; exit 1
+          fi
+          docker cp vault:/tmp/vault-audit.log vault-audit.log
+          wc -l vault-audit.log
+          curl -sf http://localhost:9742/inventory.json > inv-before.json
+          docker cp vault-audit.log keycensus:/tmp/vault-audit.log
+          docker cp inv-before.json keycensus:/tmp/inv-before.json
+          docker exec keycensus keycensus usage -i /tmp/inv-before.json --log vault-audit:/tmp/vault-audit.log \
+            -o /tmp/kc-usage -f json
+          docker exec keycensus cat /tmp/kc-usage/inventory.json > usage.json
+          python3 - <<'EOF'
+          import json
+          inv = json.load(open("usage.json"))
+          log = inv["usage"]["logs"][0]
+          print(json.dumps(log, indent=2))
+          assert log["events"] == 6 and log["matched"] == 6, log
+          keys = {a["name"]: a for a in inv["assets"] if a["source"] == "vault" and a["kind"] == "key"}
+          dek = keys["payments-dek"]["observed_use"]
+          print(json.dumps(dek, indent=2))
+          pay = {p["id"]: p for p in dek["principals"]}["token-payments-api"]
+          assert pay["operations"] == {"encrypt": 3, "decrypt": 1}, pay
+          assert pay["authorized"] is True and pay["policies"] == ["payments-api"], pay
+          assert "batch-reporting" in [u["id"] for u in dek["authorized_not_seen"]], dek
+          jwt = {p["id"]: p for p in keys["jwt-ecdsa"]["observed_use"]["principals"]}
+          assert jwt["token-auth-service"]["operations"] == {"sign": 1} and jwt["token-auth-service"]["authorized"]
+          assert jwt["token-payments-api"]["denied"] == 1 and jwt["token-payments-api"]["authorized"] is False, jwt
+          assert keys["legacy-rsa"]["observed_use"]["succeeded"] == 0
+          unused = {f["asset_name"] for f in inv["findings"] if f["rule_id"] == "key-not-used" and f["source"] == "vault"}
+          assert "legacy-rsa" in unused and "payments-dek" not in unused, unused
+          EOF
       - name: Logs on failure
         if: failure()
         run: docker compose logs
