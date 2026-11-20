@@ -14,7 +14,7 @@ report a human can read, Prometheus metrics. **What just got worse** — every r
 so a key that became exportable pages someone instead of waiting for an audit. **What breaks if this key is
 revoked** — your SBOMs joined to the keys each application actually uses.
 
-<img width="1233" alt="Who uses this key: inferred evidence from key stores (including AD CS), declared evidence from SBOMs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
+<img width="1233" alt="Who uses this key: inferred evidence from key stores, AD CS and Kubernetes, declared evidence from SBOMs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
 
 
 <img width="791" height="795" alt="keycensus HTML report: findings ranked by severity, each naming the asset, the rule and the PCI DSS / NIST control it maps to" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />

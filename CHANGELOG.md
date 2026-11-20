@@ -5,6 +5,9 @@
 - Docs: `keycensus doctor`, the Kubernetes collector (kind with cert-manager), the Dependency-Track round-trip
   and CycloneDX 1.7 output move to integration-tested. Their CI jobs have passed on GitHub Actions since
   0.16.0, including Dependency-Track 4.14.6 importing nothing, as docs/DEPENDENCY-TRACK.md says.
+- Docs: the "Who uses this key" diagram now counts 7 of 17 sources with consumers (Kubernetes added), lists
+  every source without consumers, drops the stale "new" badge on AD CS, and says Dependency-Track 5.1 or
+  later is needed for the graph.
 
 ## 0.17.0 — 2026-11-14
 
