@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Docs: `keycensus doctor`, the Kubernetes collector (kind with cert-manager), the Dependency-Track round-trip
+  and CycloneDX 1.7 output move to integration-tested. Their CI jobs have passed on GitHub Actions since
+  0.16.0, including Dependency-Track 4.14.6 importing nothing, as docs/DEPENDENCY-TRACK.md says.
+
 ## 0.17.0 — 2026-11-14
 
 **Versioned policy packs.**
