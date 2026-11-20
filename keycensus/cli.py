@@ -280,6 +280,105 @@ def rules(policy_ref):
 
 
 @main.command()
+@click.option("-o", "--output", "output_path", default="keycensus.yml", show_default=True,
+              help="Where to write the config.")  # fmt: skip
+@click.option("-s", "--source", "source_types", multiple=True, metavar="TYPE",
+              help="Source type to set up (repeatable); skips the question. See `keycensus collectors`.")  # fmt: skip
+@click.option("-y", "--yes", "assume_yes", is_flag=True,
+              help="Take every default without asking; fails if a required setting has none.")  # fmt: skip
+@click.option("--force", is_flag=True, help="Overwrite an existing config.")
+@click.option("--scan/--no-scan", "run_first_scan", default=True, show_default=True,
+              help="Run the first scan once the config is written.")  # fmt: skip
+@click.option("--out-dir", default="./out", show_default=True, help="Where the first scan writes its reports.")
+@click.pass_context
+def init(ctx, output_path, source_types, assume_yes, force, run_first_scan, out_dir):  # noqa: C901, PLR0912
+    """Set up keycensus: pick sources, write the config, test each source, run the first scan."""
+    from . import init as setup
+    from .doctor import diagnose, render_text, run_sources
+
+    out = Path(output_path)
+    if out.exists() and not force:
+        if assume_yes or not click.confirm(f"{out} exists. Overwrite it?", default=False):
+            raise click.ClickException(f"{out} exists; pass --force to overwrite it")
+
+    hints = setup.detect()
+    if not source_types:
+        click.echo("keycensus can read these sources:\n")
+        for t, desc in DESCRIPTIONS.items():
+            if t in setup.ALIASES:
+                continue
+            mark = f"  <- {hints[t]}" if t in hints else ""
+            click.echo(f"  {t:15} {desc}{mark}")
+        default = ",".join(hints) or "pem"
+        raw = default if assume_yes else click.prompt("\nWhich ones (comma separated)", default=default)
+        source_types = tuple(x.strip() for x in raw.split(",") if x.strip())
+    types = [setup.ALIASES.get(t, t) for t in source_types]
+    unknown = [t for t in types if t not in setup.QUESTIONS]
+    if unknown:
+        raise click.ClickException(f"unknown source type {', '.join(unknown)}; known: "
+                                   f"{', '.join(sorted(setup.QUESTIONS))}")  # fmt: skip
+
+    blocks, names = [], set()
+    for t in types:
+        st = setup.QUESTIONS[t]
+        click.echo(f"\n{t}: {DESCRIPTIONS[t]}")
+        name = st.name if st.name not in names else f"{st.name}-{len(names) + 1}"
+        if not assume_yes:
+            name = click.prompt("  source name", default=name)
+        names.add(name)
+        answers = {}
+        for q in st.questions:
+            dflt = setup.default_for(q, t)
+            if assume_yes:
+                raw = dflt
+            elif q.kind == setup.BOOL:
+                raw = click.confirm(f"  {q.prompt}", default=bool(dflt))
+            else:
+                shown = ", ".join(dflt) if isinstance(dflt, list) else dflt
+                raw = click.prompt(f"  {q.prompt}", default=shown if shown is not None else "",
+                                   show_default=shown is not None)  # fmt: skip
+            value = setup.parse_answer(q, raw)
+            if value is None and q.required:
+                raise click.ClickException(f"{name}: {q.prompt.lower()} is required")
+            answers[q.key] = value
+        blocks.append(setup.source_block(t, name, answers))
+
+    out.write_text(setup.render_config(blocks))
+    click.echo(f"\nwrote {out}")
+    try:
+        config = load(out)
+    except ConfigError as exc:  # init wrote something load() refuses: a bug, not the user's fault
+        raise click.ClickException(f"the config init wrote does not load: {exc}") from exc
+
+    extras = {b["name"]: setup.missing_module(b["type"]) for b in blocks}
+    extras = {k: v for k, v in extras.items() if v}
+    if extras:
+        click.echo(f"\nnot installed: the libraries for {', '.join(extras)}. Install them with:\n"
+                   f"  {setup.install_hint(list(extras.values()))}")  # fmt: skip
+    for src, var in setup.unset_secrets(blocks):
+        click.echo(f"note: {src} reads its secret from ${var}, which is not set in this shell")
+
+    click.echo("\nTesting each source (keycensus doctor):\n")
+    _setup_logging(False)
+    logging.getLogger().setLevel(logging.CRITICAL)
+    diagnoses = [diagnose(r) for r in run_sources(config)]
+    click.echo(render_text(diagnoses).rstrip())
+    working = sum(1 for d in diagnoses if d.status != "failed")
+    if not run_first_scan:
+        click.echo(f"\nnext: keycensus scan -c {out} -o {out_dir}")
+        return
+    if not working:
+        click.echo(f"\nNo source worked, so there is nothing to scan yet. Fix the above, then run:\n"
+                   f"  keycensus doctor -c {out}\n  keycensus scan -c {out} -o {out_dir}")  # fmt: skip
+        return
+    click.echo(f"\nFirst scan ({working} of {len(diagnoses)} source(s) working):\n")
+    try:
+        ctx.invoke(scan, config_path=str(out), output_dir=out_dir)
+    finally:
+        click.echo(f"\nreport: {Path(out_dir) / 'report.html'}")
+
+
+@main.command()
 def collectors():
     """List available source types."""
     for name in sorted(REGISTRY):

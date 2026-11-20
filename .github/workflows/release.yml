@@ -1,0 +1,157 @@
+name: release
+
+# On a v* tag: build the wheel and sdist, the Linux and macOS single-file binaries and the Homebrew formula;
+# test each one on a clean machine; publish to PyPI (trusted publishing, no token) and attach everything to
+# the GitHub release. On a pull request that changes packaging, or run by hand, it builds and tests without
+# publishing.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dist:
+    name: wheel and sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: The tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME but pyproject says $v"; exit 1; }
+      - name: Build
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Install the wheel on a clean venv and run a first scan
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install dist/*.whl
+          sh packaging/smoke.sh /tmp/clean/bin/keycensus
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+
+  binary-linux:
+    name: binary (linux-x86_64)
+    runs-on: ubuntu-latest
+    # Debian 12 has glibc 2.36: the binary runs on Debian 12+, Ubuntu 24.04+, RHEL 10+ and Fedora 37+.
+    # (Debian 11's package archive is gone since its LTS ended in August 2026.)
+    container: python:3.12-slim-bookworm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends binutils openssl
+          pip install pyinstaller ".[all]"
+          sh packaging/build-binary.sh
+      - name: Test the binary with no Python on the path
+        run: |
+          cp dist/keycensus /tmp/keycensus
+          env -i PATH=/usr/bin:/bin HOME=/tmp sh packaging/smoke.sh /tmp/keycensus
+      - name: Name it
+        run: |
+          v=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          mkdir out && cp dist/keycensus "out/keycensus-$v-linux-x86_64"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binary-linux
+          path: out/
+
+  binary-macos:
+    name: binary (macos-arm64)
+    runs-on: macos-15            # arm64; macos-14 was retired in November 2026
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          pip install pyinstaller ".[all]"
+          sh packaging/build-binary.sh
+      - name: Test the binary with no Python on the path
+        run: |
+          cp dist/keycensus /tmp/keycensus
+          env -i PATH=/usr/bin:/bin HOME=/tmp sh packaging/smoke.sh /tmp/keycensus
+      - name: Name it
+        run: |
+          v=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          mkdir out && cp dist/keycensus "out/keycensus-$v-macos-arm64"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binary-macos
+          path: out/
+
+  pypi:
+    name: publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [dist, binary-linux, binary-macos]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/keycensus
+    permissions:
+      id-token: write          # trusted publishing: PyPI trusts this workflow, no API token is stored
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  github-release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [dist, binary-linux, binary-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # create the release and upload its files
+      id-token: write          # build provenance for the binaries
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts/
+      - name: Checksums and the Homebrew formula
+        run: |
+          mkdir release
+          cp artifacts/dist/* artifacts/binary-linux/* artifacts/binary-macos/* release/
+          chmod +x release/keycensus-*-linux-x86_64 release/keycensus-*-macos-arm64
+          (cd release && sha256sum keycensus-* > SHA256SUMS)
+          python3 packaging/homebrew/make_formula.py "${GITHUB_REF_NAME#v}" release/SHA256SUMS > release/keycensus.rb
+          cat release/SHA256SUMS release/keycensus.rb
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "release/keycensus-*"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber release/*

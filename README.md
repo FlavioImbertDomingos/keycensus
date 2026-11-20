@@ -14,7 +14,7 @@ report a human can read, Prometheus metrics. **What just got worse** — every r
 so a key that became exportable pages someone instead of waiting for an audit. **What breaks if this key is
 revoked** — your SBOMs joined to the keys each application actually uses.
 
-<img width="1233" alt="Who uses this key: inferred evidence from key stores, AD CS and Kubernetes, declared evidence from SBOMs, observed use from audit logs, the join, and what comes out" src="docs/img/who-uses-this-key.png" />
+<img width="1233" alt="Who uses this key: inferred evidence from key stores, AD CS and Kubernetes, declared evidence from SBOMs, observed use from audit logs, the join, and what comes out" src="https://raw.githubusercontent.com/FlavioImbertDomingos/keycensus/main/docs/img/who-uses-this-key.png" />
 
 
 <img width="791" height="795" alt="keycensus HTML report: findings ranked by severity, each naming the asset, the rule and the PCI DSS / NIST control it maps to" src="https://github.com/user-attachments/assets/4fbf4273-ffa2-49c1-9bc3-b476d63d0a16" />
@@ -119,9 +119,17 @@ Every finding says **what**, **why it matters**, **what to do**, and **which con
 ## Point it at your real estate
 
 ```bash
+brew install flavioimbertdomingos/keycensus/keycensus    # or: pipx install "keycensus[all]", or a binary
+keycensus init                                           # pick sources, write keycensus.yml, test, first scan
+```
+
+`init` asks which sources you run and the few settings each needs, never a secret (it asks which environment
+variable holds it), tests every source with `doctor` and runs the first scan. Binaries for Linux and macOS,
+the extras each source needs and the container are in [docs/INSTALL.md](docs/INSTALL.md). By hand:
+
+```bash
 cp config/keycensus.example.yml config/keycensus.yml     # describe your sources
 cp .env.example .env                                     # secrets go here, never in YAML
-pip install "keycensus[all]"                             # or use the container
 keycensus scan -c config/keycensus.yml -o ./out
 keycensus doctor -c config/keycensus.yml                 # what each source reached, and what to grant
 ```
@@ -380,6 +388,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/IDENTITY.md](docs/IDENTITY.md) — the same certificate or key in several places as one asset, and how assets relate
 - [docs/OBSERVED-USE.md](docs/OBSERVED-USE.md) — who actually called each key, from CloudTrail, Vault, Key Vault and Google Cloud audit logs
 - [docs/SARIF.md](docs/SARIF.md) — findings as SARIF 2.1.0 for GitHub code scanning
+- [docs/INSTALL.md](docs/INSTALL.md) — binaries, Homebrew, pipx and extras, `keycensus init`
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, with stages and acceptance criteria
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
@@ -425,7 +434,8 @@ runs the Kubernetes collector against kind with cert-manager. 0.17.0 makes the p
 every scan and finding records. 0.18.0 treats the same certificate or key pair seen in several places as one
 asset, and links certificates to their keys and issuers. 0.19.0 reads the key stores' audit logs to show who
 actually used each key, next to who may. 0.20.0 adds SARIF output for GitHub code scanning and tests the
-audit-log reader against a real Vault in CI. Next come `init` and packaging, then the agent and central server, the web UI with owners and risk exceptions, and Jira and
+audit-log reader against a real Vault in CI. 0.21.0 adds `keycensus init`, PyPI, Homebrew and single-file
+binaries. Next come the agent and central server, the web UI with owners and risk exceptions, and Jira and
 ServiceNow tickets.
 
 Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on

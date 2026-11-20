@@ -15,7 +15,14 @@ Every item moves through four stages. The roadmap names the stage an item has re
 | integration-tested | Tested against a real implementation of the system it talks to: a real Vault, SoftHSM, OpenLDAP, files made by `keytool` or `ssh-keygen`, a certified OIDC provider, or a vendor emulator where the table says so. |
 | field-validated | Run against a real production estate by someone other than the author, with the result reported back. |
 
-## Now: 0.20.0, SARIF and observed use against a real Vault
+## Now: 0.21.0, init and packaging
+
+| Item | Stage | Acceptance criterion |
+|---|---|---|
+| `keycensus init` | implemented | Asks which sources you run (marking the ones the machine looks set up for), asks only the settings a first scan needs, writes the config with secrets as environment variable references, tests every source with `doctor`, names the extra a missing library needs, and runs the first scan. See [INSTALL.md](INSTALL.md). |
+| `pipx install keycensus`, Homebrew, single-file binaries | implemented | A `v*` tag builds the wheel, the sdist and single-file binaries for Linux x86_64 and macOS arm64, installs each on a clean machine with no Python on the path and runs `init` and a scan with it, publishes to PyPI by trusted publishing and attaches the binaries, checksums, provenance and a Homebrew formula to the release. Integration-tested once the first tagged release has run it end to end. |
+
+## Shipped in 0.20.0, SARIF and observed use against a real Vault
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
@@ -79,13 +86,6 @@ supports each finding.
 Voltage reads export files and stays complete-or-failed.
 
 ## Next
-
-### Easy to start
-
-| Item | Stage | Acceptance criterion |
-|---|---|---|
-| `pipx install keycensus`, Homebrew, single-file binaries | planned | A clean machine goes from install to first report with no Python setup. |
-| `keycensus init` | planned | Asks which sources you run, tests each credential, writes the config and runs the first scan. |
 
 ### Collector qualification
 

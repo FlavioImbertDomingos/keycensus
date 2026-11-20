@@ -4,7 +4,7 @@ How far each part of keycensus has been tested, against what, and what it is kno
 defined in [ROADMAP.md](ROADMAP.md#stages). Nothing here is field-validated yet: if you run keycensus
 against a real estate, an issue saying which collectors worked is the most useful report you can send.
 
-Last updated for 0.20.0. Every row runs in CI on every push unless it says otherwise.
+Last updated for 0.21.0. Every row runs in CI on every push unless it says otherwise.
 
 ## Collectors
 
@@ -45,6 +45,8 @@ forward if it fails, because a failed source never removes anything.
 | Asset identity and relationships | Unit tests on real certificates, keys and a CA chain made with `cryptography` and read by the `pem` collector, and on OpenSSH key pairs made by `ssh-keygen`; JWK and Vault Transit public keys checked against the same key's fingerprint; both CycloneDX versions validated with merged components | implemented |
 | Observed use from audit logs | CI: a real Vault 1.18 file audit device in the compose smoke test, with Transit calls from two tokens, one refused. Recorded samples in the documented formats: a CloudTrail S3 object (plain and gzipped), Vault file audit device lines, Key Vault `AuditEvent` records, `gcloud logging read` output; matching, authorisation, window and every output checked | integration-tested (Vault), implemented (CloudTrail, Key Vault, Cloud Audit Logs) |
 | SARIF output | Validated against the OASIS SARIF 2.1.0 schema; code findings from the sample repository checked for file, line and relative paths; fingerprints compared across runs | implemented |
+| `keycensus init` | Unit tests: interactive and non-interactive runs, every source type's generated block loaded by the config loader, secrets only as `*_env`, detection from the environment, missing extras | implemented |
+| Packages and binaries | Built and run by hand during development: the wheel in a clean venv, and a PyInstaller binary on Linux with an empty environment, through `init`, a scan and every output, with every optional collector library loading. The release workflow repeats this on every tag, on Linux and macOS | implemented |
 | `serve` end to end | The docker compose smoke test in CI: SoftHSM, Vault, the demo sources, `/inventory.json`, `/cbom.json`, `/metrics` | integration-tested |
 
 ## FIPS 140
