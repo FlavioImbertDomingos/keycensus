@@ -9,7 +9,7 @@
   each one and checks that it is set. It then tests every source with `doctor`, names the extra a missing
   library needs, and runs the first scan. `-s TYPE`, `-y`, `--no-scan`, `--force`, `-o`, `--out-dir`.
 - A release workflow (`.github/workflows/release.yml`) runs on `v*` tags: wheel and sdist, single-file
-  binaries for Linux x86_64 (built on Debian 11, glibc 2.31) and macOS arm64, each installed on a clean machine
+  binaries for Linux x86_64 (built on Debian 12, glibc 2.36) and macOS arm64, each installed on a clean machine
   and run through `init` and a scan (`packaging/smoke.sh`); publish to PyPI by trusted publishing; binaries,
   `SHA256SUMS`, build provenance and a Homebrew formula attached to the GitHub release.
 - `packaging/build-binary.sh` builds the binary with PyInstaller, with every optional collector library.

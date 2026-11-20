@@ -2,11 +2,17 @@ name: release
 
 # On a v* tag: build the wheel and sdist, the Linux and macOS single-file binaries and the Homebrew formula;
 # test each one on a clean machine; publish to PyPI (trusted publishing, no token) and attach everything to
-# the GitHub release. Run by hand (workflow_dispatch) it builds and tests without publishing.
+# the GitHub release. On a pull request that changes packaging, or run by hand, it builds and tests without
+# publishing.
 
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "packaging/**"
+      - "pyproject.toml"
   workflow_dispatch:
 
 permissions:
@@ -46,8 +52,9 @@ jobs:
   binary-linux:
     name: binary (linux-x86_64)
     runs-on: ubuntu-latest
-    # Debian 11 has glibc 2.31: the binary runs on Ubuntu 20.04+, Debian 11+, RHEL 9+ and Amazon Linux 2023
-    container: python:3.12-slim-bullseye
+    # Debian 12 has glibc 2.36: the binary runs on Debian 12+, Ubuntu 24.04+, RHEL 10+ and Fedora 37+.
+    # (Debian 11's package archive is gone since its LTS ended in August 2026.)
+    container: python:3.12-slim-bookworm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,7 +79,7 @@ jobs:
 
   binary-macos:
     name: binary (macos-arm64)
-    runs-on: macos-14
+    runs-on: macos-15            # arm64; macos-14 was retired in November 2026
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

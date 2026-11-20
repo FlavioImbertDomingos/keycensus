@@ -5,7 +5,7 @@ command.
 
 | Way | Needs | Gets you |
 |---|---|---|
-| Single-file binary | nothing | every collector, on Linux x86_64 (glibc 2.31 or later) and macOS on Apple silicon |
+| Single-file binary | nothing | every collector, on Linux x86_64 (glibc 2.36 or later: Debian 12, Ubuntu 24.04, RHEL 10 and newer) and macOS on Apple silicon |
 | Homebrew | Homebrew | the same binary, kept up to date by `brew upgrade` |
 | pipx | Python 3.11+ | the Python package, with the extras you choose |
 | Container | Docker or Kubernetes | `ghcr.io/flavioimbertdomingos/keycensus`, also used by the Helm chart ([HELM.md](HELM.md)) |
@@ -87,4 +87,6 @@ type is in [config/keycensus.example.yml](../config/keycensus.example.yml).
 A `v*` tag runs `.github/workflows/release.yml`: it builds the wheel, the sdist and both binaries, installs
 each on a clean machine and runs a first scan with it (`packaging/smoke.sh`), publishes to PyPI by trusted
 publishing (no API token is stored anywhere), and attaches the binaries, `SHA256SUMS` and the Homebrew
-formula to the GitHub release. The Linux binary is built on Debian 11 so it runs on older distributions.
+formula to the GitHub release. The Linux binary is built on Debian 12. On older distributions (Ubuntu 22.04,
+RHEL 9, Amazon Linux 2023) use pipx or the container. A pull request that changes packaging runs the same
+builds and tests, without publishing.
