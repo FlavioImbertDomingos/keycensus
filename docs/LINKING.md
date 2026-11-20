@@ -4,7 +4,7 @@ A CBOM lists your cryptography. An SBOM lists your software. Neither answers the
 matters at 2 a.m.: *this key is weak / expiring / compromised — which applications break?*
 keycensus builds that edge and puts it in every output.
 
-## Two kinds of evidence
+## Three kinds of evidence
 
 **1. What the key store already knows (inferred, automatic).** Collectors record who is allowed to
 use each key on `asset.used_by`:
@@ -48,6 +48,11 @@ are case-insensitive `fnmatch`.
 application's name as a whole token — `arn:aws:iam::123:role/payments-api` ↔ `payments-api`, Vault
 policy `batch_reporting` ↔ `batch-reporting`. It is how an application with an SBOM but no selectors
 still gets its keys; disable it with `linking.auto_match: false` if your naming is not that tidy.
+
+**3. What the audit logs show (observed).** From 0.19.0, keycensus reads CloudTrail, the Vault audit
+device, Key Vault `AuditEvent` logs and Google Cloud Audit Logs and records, per key, who actually called it,
+how often and when, as `observed_use`. It is kept apart from `used_by` and `applications`, and each caller is
+compared with `used_by`. See [OBSERVED-USE.md](OBSERVED-USE.md).
 
 ## What you get
 
@@ -104,6 +109,6 @@ Anything you set explicitly in `applications:` still wins over the document, in 
   `syft convert` or `cyclonedx-cli`). Only the root component/package is used for identity; the rest
   are counted, not matched.
 * Inferred consumers are *authorisations*, not observed use: a role that may use a key is listed
-  whether or not it ever did. That is still what an auditor wants (least privilege), but it is not
-  telemetry.
+  whether or not it ever did. That is still what an auditor wants (least privilege). For who actually used a
+  key, add the key store's audit log ([OBSERVED-USE.md](OBSERVED-USE.md)).
 * PKCS#11 has no notion of a consumer; declare those keys explicitly.

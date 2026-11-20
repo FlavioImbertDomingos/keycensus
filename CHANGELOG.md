@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.19.0 — 2026-11-19
+
+**Observed use from audit logs.**
+
+- keycensus reads AWS CloudTrail, the HashiCorp Vault file audit device, Azure Key Vault `AuditEvent`
+  diagnostic logs and Google Cloud Audit Logs (Data Access, Cloud KMS) from files, and records on each key
+  who called it, which operations, how many calls, refused calls, and the first and last call, with the
+  window the logs cover. See docs/OBSERVED-USE.md.
+- `observed_use` is kept apart from `used_by` (allowed to use) and `applications` (declared). Each caller is
+  compared with the authorised consumers (`authorized`), and the authorised consumers that made no call are
+  listed (`authorized_not_seen`). A key no log covers has `observed_use: null`: unknown, not unused.
+- Configure with a `usage:` block (`logs`, optional `window_days` and per-log `sources`); `keycensus scan`
+  reads the logs after linking. `keycensus usage` reads logs against a saved scan, with `--log TYPE:PATH`
+  and `--window-days`.
+- New finding `key-not-used` (info): an active key a log covers with no successful call in the window.
+- inventory.json: a `usage` block (each log's window, counts, covered scopes, and keys used that are not in
+  the inventory) and summary counts `assets_usage_covered`, `assets_used`, `assets_not_used`.
+- The HTML report adds "Observed use", "Authorised, not seen" and "Covered, not used"; the CBOM carries
+  observed-use properties; the CSV gains an `observed_use` column; Prometheus gains
+  `keycensus_assets_usage_covered`, `keycensus_assets_not_used` and `keycensus_audit_log_calls`.
+
 ## 0.18.0 — 2026-11-19
 
 **Asset identity and relationships.**

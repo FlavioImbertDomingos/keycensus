@@ -96,7 +96,23 @@ def render(inv: Inventory) -> str:
         control_titles=control_titles,
         version=__version__,
         **_identity_context(inv),
+        **_usage_context(inv),
     )
+
+
+def _usage_context(inv) -> dict:
+    """Observed use from the audit logs: per key and principal, authorised but unseen, unknown keys."""
+    from ..usage import LOG_TITLES, rows  # noqa: PLC0415
+
+    if not inv.usage:
+        return {"usage": None}
+    not_seen = [{"asset": a.name, "source": a.source, **u} for a in inv.assets
+                for u in (a.observed_use or {}).get("authorized_not_seen") or []]  # fmt: skip
+    idle = [{"asset": a.name, "source": a.source, "denied": a.observed_use.get("denied", 0)} for a in inv.assets
+            if a.observed_use is not None and not a.observed_use.get("succeeded")]  # fmt: skip
+    logs = [lg | {"title": LOG_TITLES.get(lg["type"], lg["type"])} for lg in inv.usage.get("logs") or []]
+    return {"usage": {"logs": logs, "error": inv.usage.get("error"), "rows": rows(inv), "not_seen": not_seen,
+                      "idle": idle, "window_days": inv.usage.get("window_days")}}  # fmt: skip
 
 
 def _identity_context(inv) -> dict:

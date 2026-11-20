@@ -1,0 +1,145 @@
+[
+ {
+  "protoPayload": {
+   "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+   "status": {},
+   "authenticationInfo": {
+    "principalEmail": "payments@acme-prod.iam.gserviceaccount.com"
+   },
+   "requestMetadata": {
+    "callerIp": "10.0.4.5",
+    "callerSuppliedUserAgent": "grpc-java/1.62"
+   },
+   "serviceName": "cloudkms.googleapis.com",
+   "methodName": "google.cloud.kms.v1.KeyManagementService.Decrypt",
+   "authorizationInfo": [
+    {
+     "resource": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/payments-kek",
+     "permission": "cloudkms.cryptoKeyVersions.useToDecrypt",
+     "granted": true
+    }
+   ],
+   "resourceName": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/payments-kek"
+  },
+  "insertId": "id-2026-11-13T07:00:00.123456Z",
+  "resource": {
+   "type": "cloudkms_cryptokey",
+   "labels": {
+    "project_id": "acme-prod",
+    "location": "global"
+   }
+  },
+  "timestamp": "2026-11-13T07:00:00.123456Z",
+  "severity": "INFO",
+  "logName": "projects/acme-prod/logs/cloudaudit.googleapis.com%2Fdata_access",
+  "receiveTimestamp": "2026-11-13T07:00:00.123456Z"
+ },
+ {
+  "protoPayload": {
+   "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+   "status": {},
+   "authenticationInfo": {
+    "principalEmail": "payments@acme-prod.iam.gserviceaccount.com"
+   },
+   "requestMetadata": {
+    "callerIp": "10.0.4.5",
+    "callerSuppliedUserAgent": "grpc-java/1.62"
+   },
+   "serviceName": "cloudkms.googleapis.com",
+   "methodName": "google.cloud.kms.v1.KeyManagementService.Decrypt",
+   "authorizationInfo": [
+    {
+     "resource": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/payments-kek",
+     "permission": "cloudkms.cryptoKeyVersions.useToDecrypt",
+     "granted": true
+    }
+   ],
+   "resourceName": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/payments-kek"
+  },
+  "insertId": "id-2026-11-17T07:00:00.123456Z",
+  "resource": {
+   "type": "cloudkms_cryptokey",
+   "labels": {
+    "project_id": "acme-prod",
+    "location": "global"
+   }
+  },
+  "timestamp": "2026-11-17T07:00:00.123456Z",
+  "severity": "INFO",
+  "logName": "projects/acme-prod/logs/cloudaudit.googleapis.com%2Fdata_access",
+  "receiveTimestamp": "2026-11-17T07:00:00.123456Z"
+ },
+ {
+  "protoPayload": {
+   "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+   "status": {
+    "code": 7,
+    "message": "Permission denied"
+   },
+   "authenticationInfo": {
+    "principalEmail": "eve@example.com"
+   },
+   "requestMetadata": {
+    "callerIp": "10.0.4.5",
+    "callerSuppliedUserAgent": "grpc-java/1.62"
+   },
+   "serviceName": "cloudkms.googleapis.com",
+   "methodName": "google.cloud.kms.v1.KeyManagementService.AsymmetricSign",
+   "authorizationInfo": [
+    {
+     "resource": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/signing/cryptoKeyVersions/3",
+     "permission": "cloudkms.cryptoKeyVersions.useToDecrypt",
+     "granted": false
+    }
+   ],
+   "resourceName": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/signing/cryptoKeyVersions/3"
+  },
+  "insertId": "id-2026-11-18T07:00:00Z",
+  "resource": {
+   "type": "cloudkms_cryptokey",
+   "labels": {
+    "project_id": "acme-prod",
+    "location": "global"
+   }
+  },
+  "timestamp": "2026-11-18T07:00:00Z",
+  "severity": "ERROR",
+  "logName": "projects/acme-prod/logs/cloudaudit.googleapis.com%2Fdata_access",
+  "receiveTimestamp": "2026-11-18T07:00:00Z"
+ },
+ {
+  "protoPayload": {
+   "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+   "status": {},
+   "authenticationInfo": {
+    "principalEmail": "admin@example.com"
+   },
+   "requestMetadata": {
+    "callerIp": "10.0.4.5",
+    "callerSuppliedUserAgent": "grpc-java/1.62"
+   },
+   "serviceName": "cloudkms.googleapis.com",
+   "methodName": "google.cloud.kms.v1.KeyManagementService.GetCryptoKey",
+   "authorizationInfo": [
+    {
+     "resource": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/payments-kek",
+     "permission": "cloudkms.cryptoKeyVersions.useToDecrypt",
+     "granted": true
+    }
+   ],
+   "resourceName": "projects/acme-prod/locations/global/keyRings/payments/cryptoKeys/payments-kek"
+  },
+  "insertId": "id-2026-11-18T07:01:00Z",
+  "resource": {
+   "type": "cloudkms_cryptokey",
+   "labels": {
+    "project_id": "acme-prod",
+    "location": "global"
+   }
+  },
+  "timestamp": "2026-11-18T07:01:00Z",
+  "severity": "INFO",
+  "logName": "projects/acme-prod/logs/cloudaudit.googleapis.com%2Fdata_access",
+  "receiveTimestamp": "2026-11-18T07:01:00Z"
+ }
+]

@@ -168,6 +168,20 @@ class InventoryCollector:
             yield unlinked
 
         summ = inv.summary()
+        if inv.usage:
+            for name, doc in (
+                ("assets_usage_covered", "Keys an audit log covers (observed use is known)"),
+                ("assets_not_used", "Keys an audit log covers with no successful call in its window"),
+            ):
+                g = GaugeMetricFamily(f"{NS}_{name}", doc)
+                g.add_metric([], float(summ[name] or 0))
+                yield g
+            calls = GaugeMetricFamily(f"{NS}_audit_log_calls", "Cryptographic calls read from an audit log",
+                                      labels=["log", "matched"])  # fmt: skip
+            for lg in inv.usage.get("logs") or []:
+                calls.add_metric([lg["type"], "true"], float(lg["matched"]))
+                calls.add_metric([lg["type"], "false"], float(lg["events"] - lg["matched"]))
+            yield calls
         distinct = GaugeMetricFamily(f"{NS}_assets_distinct", "Distinct certificates and keys (one per identity)")
         distinct.add_metric([], float(summ["assets_distinct"]))
         yield distinct

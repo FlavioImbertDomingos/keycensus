@@ -11,8 +11,16 @@ COLUMNS = [
     "fips_certificate", "classical_bits", "observed", "last_observed",
     "quantum_class", "signature_hash", "subject", "issuer", "protocol_version", "cipher_suites",
     "key_exchange",
-    "location", "applications", "used_by", "findings",
+    "location", "applications", "used_by", "observed_use", "findings",
 ]  # fmt: skip
+
+
+def _observed(u: dict | None) -> str:
+    """Empty: no log covers the key. 'none': covered, nobody used it. Else principal(calls) ..."""
+    if u is None:
+        return ""
+    used = [f"{p['id']}({sum(p['operations'].values())})" for p in u.get("principals") or [] if p["operations"]]
+    return " ".join(used) or "none"
 
 
 def render(inv: Inventory) -> str:
@@ -31,6 +39,7 @@ def render(inv: Inventory) -> str:
         d["quantum_class"] = s.quantum_class
         d["applications"] = " ".join(a.applications)
         d["used_by"] = " ".join(u.get("id", "") for u in a.used_by)
+        d["observed_use"] = _observed(a.observed_use)
         d["findings"] = " ".join(by_asset.get(a.id, []))
         for k in ("standard", "level", "certificate"):
             d[f"fips_{k}"] = (a.fips_evidence or {}).get(k)

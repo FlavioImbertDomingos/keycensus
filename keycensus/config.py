@@ -66,6 +66,8 @@ class Config:
     signing: dict[str, Any] | None = None  # see keycensus.signing
     config_sha256: str | None = None  # of the config file as loaded, for the audit log and signed manifests
     cbom_version: str = "1.6"  # `cbom: {version: "1.7"}`; see keycensus.exporters.cbom
+    usage_logs: list[dict[str, Any]] = field(default_factory=list)  # `usage: {logs: [...]}`; see keycensus.usage
+    usage_window_days: int | None = None
 
 
 def load(path: str | Path) -> Config:
@@ -101,6 +103,23 @@ def load(path: str | Path) -> Config:
     for block in ("serve", "audit", "signing", "secrets"):
         if raw.get(block) is not None and not isinstance(raw.get(block), dict):
             raise ConfigError(f"{path}: '{block}' must be a mapping")
+    usage = raw.get("usage") or {}
+    if not isinstance(usage, dict):
+        raise ConfigError(f"{path}: 'usage' must be a mapping with a 'logs' list")
+    from .usage import UsageError, validate  # noqa: PLC0415
+
+    try:
+        usage_logs = validate(usage.get("logs"), where=f"{path}: usage.logs")
+    except UsageError as exc:
+        raise ConfigError(str(exc)) from exc
+    window = usage.get("window_days")
+    if window is not None and (not isinstance(window, int) or isinstance(window, bool) or window < 1):
+        raise ConfigError(f"{path}: usage.window_days must be a positive number of days")
+    known = {s.name for s in sources}
+    for entry in usage_logs:
+        for s in entry.get("sources") or []:
+            if s not in known:
+                raise ConfigError(f"{path}: usage.logs names source {s!r}, which is not in 'sources'")
     urgency = changes.get("urgency") or {}
     if not isinstance(urgency, dict):
         raise ConfigError(f"{path}: 'changes.urgency' must be a mapping of change kind -> page|digest|ignore")
@@ -127,4 +146,6 @@ def load(path: str | Path) -> Config:
         signing=raw.get("signing"),
         config_sha256=hashlib.sha256(data).hexdigest(),
         cbom_version=cbom_version,
+        usage_logs=usage_logs,
+        usage_window_days=window,
     )
