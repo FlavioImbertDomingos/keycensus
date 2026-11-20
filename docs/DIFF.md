@@ -52,6 +52,13 @@ findings: neither removed nor resolved. `diff.json` lists them under `assets_unv
 them and their findings stay open, marked "not re-verified". `--no-carry-forward` turns that off.
 `keycensus serve` always carries forward from its previous scan.
 
+### A copy is not a deletion
+
+When a record is removed but the same certificate or key pair is still seen somewhere else (see
+[IDENTITY.md](IDENTITY.md)), the removed record carries `elsewhere`, the places it is still seen, and the text
+output says "also seen: ...". `changes` classifies it as `asset-copy-removed`, a digest. The last copy going
+away is still `asset-removed`, which pages.
+
 ### Why a finding changed
 
 Every new and resolved finding in `diff.json` has a `cause`:

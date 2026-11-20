@@ -136,7 +136,7 @@
 
 <h2>At a glance</h2>
 <div class="tiles">
-  <div class="tile"><div class="n">{{ summary.assets }}</div><div class="l">assets</div></div>
+  <div class="tile"><div class="n">{{ summary.assets_distinct }}</div><div class="l">distinct assets{% if summary.assets_distinct != summary.assets %} ({{ summary.assets }} records){% endif %}</div></div>
   {% for sev in ["critical","high","medium","low","info"] %}
   <div class="tile {{ sev }}"><div class="n">{{ summary.findings_by_severity[sev] }}</div><div class="l">{{ sev }}</div></div>
   {% endfor %}
@@ -228,6 +228,36 @@
   {% endfor %}
   </tbody>
 </table>
+
+{% if multi_place %}
+<h2>Seen in more than one place ({{ multi_place|length }})</h2>
+<p class="small muted">The same certificate (same fingerprint), key pair (same public key) or AWS multi-region key, found by more than one source or in more than one location. It counts once in the totals; each place keeps its own findings, because each copy has to be replaced.</p>
+<table>
+  <thead><tr><th>Asset</th><th>Matched by</th><th>Places</th></tr></thead>
+  <tbody>
+  {% for i in multi_place %}
+  <tr>
+    <td>{{ i.name }} <span class="small muted">{{ i.kind }}</span></td>
+    <td class="small">{{ i.basis }}</td>
+    <td class="small">{% for o in i.observations %}<div>{{ o.source }}: {{ o.location }}{% if o.key_type in ('private-key', 'public-key') and i.kind == 'key' %} <span class="muted">({{ o.key_type }})</span>{% endif %}{% if not o.observed %} <span class="muted">(not re-verified)</span>{% endif %}</div>{% endfor %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if relationships %}
+<h2>Relationships ({{ relationships|length }})</h2>
+<p class="small muted">certifies: a certificate for a key the inventory also holds. issued-by: the CA certificate that issued it (authority key identifier). backed-by: the Key Vault key behind a Key Vault certificate.</p>
+<table>
+  <thead><tr><th>From</th><th>Relationship</th><th>To</th><th>Evidence</th></tr></thead>
+  <tbody>
+  {% for r in relationships %}
+  <tr><td>{{ r.from_name }}</td><td><code>{{ r.type }}</code></td><td>{{ r.to_name }}</td><td class="small muted">{{ r.evidence }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 
 {% if applications %}
 <h2>Applications ({{ applications|length }})</h2>

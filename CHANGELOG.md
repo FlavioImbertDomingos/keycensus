@@ -1,7 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.18.0 — 2026-11-19
 
+**Asset identity and relationships.**
+
+- The same certificate or key pair seen in several places is one asset with several observations:
+  certificates by fingerprint, keys by the SHA-256 of their public key, AWS KMS multi-region keys by their
+  `mrk-` key id. Names never match. Each place keeps its own record and findings. See docs/IDENTITY.md.
+- Collectors record `public_key_sha256` wherever they see a public key: every certificate, key files,
+  keystores, OpenSSH keys, hard-coded keys in code, Vault Transit asymmetric keys and Azure Key Vault RSA and
+  EC keys. Certificates also record their subject and authority key identifiers.
+- Relationships: `certifies` (a certificate and its key), `issued-by` (a certificate and the CA certificate
+  that issued it, by key identifier) and `backed-by` (an Azure Key Vault certificate and its key). Key
+  versions are reported per identity. Wrapping-key links are not covered yet.
+- inventory.json: each asset names its `identity`; new `identities` and `relationships` lists; the summary
+  adds `assets_distinct`, `assets_in_several_places` and `relationships`.
+- CBOM: one component per identity, with `evidence.occurrences` for each place and `dependsOn` edges for the
+  relationships. Single records keep their asset id as `bom-ref`.
+- The HTML report counts distinct assets and lists assets seen in more than one place and the relationships;
+  the executive summary counts each certificate and key pair once.
+- `keycensus diff` marks a removed record still seen elsewhere, and change alerting reports it as
+  `asset-copy-removed` (digest) instead of `asset-removed` (page).
+- Metrics `keycensus_assets_distinct` and `keycensus_assets_in_several_places`.
 - Docs: `keycensus doctor`, the Kubernetes collector (kind with cert-manager), the Dependency-Track round-trip
   and CycloneDX 1.7 output move to integration-tested. Their CI jobs have passed on GitHub Actions since
   0.16.0, including Dependency-Track 4.14.6 importing nothing, as docs/DEPENDENCY-TRACK.md says.

@@ -95,4 +95,20 @@ def render(inv: Inventory) -> str:
         controls=controls,
         control_titles=control_titles,
         version=__version__,
+        **_identity_context(inv),
     )
+
+
+def _identity_context(inv) -> dict:
+    """Identities seen in more than one place, and the relationships between identities, by name."""
+    from ..identity import group, relationships  # noqa: PLC0415
+
+    idents = group(inv.assets)
+    names = {i.id: f"{i.name} ({i.kind})" for i in idents}
+    return {
+        "multi_place": [i.to_dict() for i in idents if i.places > 1],
+        "relationships": [
+            r | {"from_name": names.get(r["from"], r["from"]), "to_name": names.get(r["to"], r["to"])}
+            for r in relationships(inv.assets, idents)
+        ],  # fmt: skip
+    }

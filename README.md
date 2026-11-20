@@ -371,6 +371,7 @@ Prometheus. Urgency is re-mappable per estate (`changes.urgency` in the config),
 - [docs/INTEGRATION-TESTS.md](docs/INTEGRATION-TESTS.md) — live tests against real Azure / GCP accounts via OIDC (harness ready, not yet run)
 - [docs/QUALIFICATION.md](docs/QUALIFICATION.md) — what each collector was tested against, and its known limits
 - [docs/DOCTOR.md](docs/DOCTOR.md) — `keycensus doctor`: what each source reached, what it missed, and the grant that fixes it
+- [docs/IDENTITY.md](docs/IDENTITY.md) — the same certificate or key in several places as one asset, and how assets relate
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, with stages and acceptance criteria
 - [docs/DEPENDENCY-TRACK.md](docs/DEPENDENCY-TRACK.md) — pushing the CBOM into OWASP Dependency-Track
 - [helm/keycensus/README.md](helm/keycensus/README.md) — the Helm chart (serve Deployment and/or scan CronJob)
@@ -413,8 +414,10 @@ cannot close, and evidence-based FIPS claims. 0.13.0 adds CycloneDX 1.7 output w
 the CycloneDX Cryptography Registry. 0.14.0 adds `keycensus doctor` and breaks down coverage for Vault,
 PKCS#11, AD CS, CipherTrust and KeySafe 5. 0.15.0 adds a Dependency-Track round-trip in CI, and 0.16.0
 runs the Kubernetes collector against kind with cert-manager. 0.17.0 makes the policy a versioned pack that
-every scan and finding records. Next come `init` and packaging, then the agent and central server, the web UI with owners
-and risk exceptions, and Jira and ServiceNow tickets.
+every scan and finding records. 0.18.0 treats the same certificate or key pair seen in several places as one
+asset, and links certificates to their keys and issuers. Next come observed usage, SARIF output, `init` and
+packaging, then the agent and central server, the web UI with owners and risk exceptions, and Jira and
+ServiceNow tickets.
 
 Thanks to [Jitendra Bhargude](https://www.linkedin.com/in/jitendrabhargude/) for suggesting alerting on
 change (0.4.0).

@@ -4,7 +4,7 @@ How far each part of keycensus has been tested, against what, and what it is kno
 defined in [ROADMAP.md](ROADMAP.md#stages). Nothing here is field-validated yet: if you run keycensus
 against a real estate, an issue saying which collectors worked is the most useful report you can send.
 
-Last updated for 0.17.0. Every row runs in CI on every push unless it says otherwise.
+Last updated for 0.18.0. Every row runs in CI on every push unless it says otherwise.
 
 ## Collectors
 
@@ -42,6 +42,7 @@ forward if it fails, because a failed source never removes anything.
 | CycloneDX 1.6 and 1.7 output | CI: both versions validated against the official schemas; every 1.7 `algorithmFamily` checked against the Cryptography Registry and every name against its family's patterns; RSA padding read from code that compiles with javac, go and node, and from AWS KMS under moto; CI: read back by Dependency-Track 5.1.2 | integration-tested |
 | `keycensus doctor` | Unit tests for every collector's scopes and optional permissions; the shipped AWS policy run under moto's IAM evaluation, whole and with permissions removed; a test that every grant a remedy names appears in the `deploy/` file it points to. CI: doctor against the compose demo, and against a narrowed Vault policy | integration-tested |
 | Dependency-Track upload | CI: a linked CBOM (CycloneDX 1.6 and 1.7) uploaded with `keycensus upload dtrack` into Dependency-Track 5.1.2, exported back and compared; Dependency-Track 4.14.6 checked to refuse it | integration-tested |
+| Asset identity and relationships | Unit tests on real certificates, keys and a CA chain made with `cryptography` and read by the `pem` collector, and on OpenSSH key pairs made by `ssh-keygen`; JWK and Vault Transit public keys checked against the same key's fingerprint; both CycloneDX versions validated with merged components | implemented |
 | `serve` end to end | The docker compose smoke test in CI: SoftHSM, Vault, the demo sources, `/inventory.json`, `/cbom.json`, `/metrics` | integration-tested |
 
 ## FIPS 140

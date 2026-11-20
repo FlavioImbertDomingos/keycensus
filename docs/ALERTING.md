@@ -36,7 +36,7 @@ keycensus changes --kinds        # the whole vocabulary and its default urgency
 
 | Kind | Why it is worth waking someone |
 |---|---|
-| `asset-removed` | A key that was **active** in the last scan is gone. Either it was deleted or the source stopped reporting it — both matter in minutes. (A key that was already `destroyed` disappearing is `asset-retired`, a digest, and so is a certificate that disappears after its expiry date, or a code call site that is gone because the code changed.) |
+| `asset-removed` | A key that was **active** in the last scan is gone. Either it was deleted or the source stopped reporting it — both matter in minutes. (A key that was already `destroyed` disappearing is `asset-retired`, a digest, and so is a certificate that disappears after its expiry date, or a code call site that is gone because the code changed. One copy of a certificate or key pair that is still seen elsewhere is `asset-copy-removed`, also a digest.) |
 | `key-became-exportable` | Private material that could not leave the module now can. This is the attribute an attacker flips before exfiltrating a key, and it is rarely changed on purpose. |
 | `hardware-backing-lost` | A key that lived in an HSM is now software-held. Your compliance scope changed with it. |
 | `fips-validation-lost` | No longer in a FIPS-validated module — an audit finding as well as a security one. |
@@ -91,6 +91,13 @@ And which policy pack graded the findings:
 ```
 keycensus_policy_info{name,version,digest}           the pack the last scan used
 keycensus_policy_review_overdue                      1 when the pack is past its review_by date
+```
+
+And how many distinct certificates and keys there are (`keycensus_assets` counts records, one per place):
+
+```
+keycensus_assets_distinct                            one per certificate, key pair or multi-region key
+keycensus_assets_in_several_places                   identities seen by more than one source or in more than one location
 ```
 
 `increase(keycensus_change_total{urgency="page"}[15m]) > 0` is the whole alert. `keycensus_diffs_total` matters more than it looks: if it stops advancing, change alerting is blind, and `KeycensusNoChangeDetectionRunning` says so.

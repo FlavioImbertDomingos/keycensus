@@ -77,6 +77,7 @@ DEFAULT_URGENCY: dict[str, str] = {
     "finding-new": DIGEST,
     # --- real, but not urgent --------------------------------------------
     "asset-added": DIGEST,
+    "asset-copy-removed": DIGEST,
     "asset-retired": DIGEST,
     "asset-unverified": DIGEST,
     "state-changed": DIGEST,
@@ -116,6 +117,8 @@ WHY: dict[str, str] = {
     "classical one. Usually a config rollback or a new load balancer; traffic is again open to "
     "harvest-now-decrypt-later.",
     "state-compromised": "A key was marked compromised. Everything it protects is now suspect.",
+    "asset-copy-removed": "One copy of a key or certificate is gone from one place, but the same certificate or "
+    "key pair is still seen elsewhere: a move or a clean-up, not a loss.",
     "asset-removed": "A key or certificate that existed in the last scan is gone. Either it was deleted, or the "
     "source stopped reporting it -- both are worth knowing within minutes.",
     "source-broken": "A source that worked now errors, so the inventory is incomplete and every other alert on "
@@ -257,10 +260,17 @@ def classify(diff: Diff, urgency: dict[str, str] | None = None) -> list[Change]:
         # housekeeping. One that was ACTIVE disappearing is an incident until
         # proven otherwise.
         retired = a.get("state") in _RETIRED_STATES or _gone_for_a_reason(a)
+        elsewhere = a.get("elsewhere")
         emit(
-            "asset-retired" if retired else "asset-removed",
+            "asset-copy-removed" if elsewhere else "asset-retired" if retired else "asset-removed",
             f"{a.get('source')}/{a.get('name')} is gone"
-            + (f" (was {a.get('state')})" if retired else " and was active at the last scan"),
+            + (
+                f" from here, still seen in {', '.join(elsewhere)}"
+                if elsewhere
+                else f" (was {a.get('state')})"
+                if retired
+                else " and was active at the last scan"
+            ),  # fmt: skip
             asset_id=a.get("id", ""),
             asset_name=a.get("name", ""),
             source=a.get("source", ""),

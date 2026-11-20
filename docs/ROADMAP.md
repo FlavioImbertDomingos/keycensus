@@ -15,7 +15,13 @@ Every item moves through four stages. The roadmap names the stage an item has re
 | integration-tested | Tested against a real implementation of the system it talks to: a real Vault, SoftHSM, OpenLDAP, files made by `keytool` or `ssh-keygen`, a certified OIDC provider, or a vendor emulator where the table says so. |
 | field-validated | Run against a real production estate by someone other than the author, with the result reported back. |
 
-## Now: 0.17.0, versioned policy packs
+## Now: 0.18.0, asset identity and relationships
+
+| Item | Stage | Acceptance criterion |
+|---|---|---|
+| Asset identity and relationships | implemented | The same certificate seen in a file, a Kubernetes secret and on a TLS endpoint is one asset with three observations: certificates by fingerprint, keys by public key, AWS multi-region keys by key id. Certificate-to-key (`certifies`), certificate-to-issuer (`issued-by`) and Azure certificate-to-key (`backed-by`) relationships, and key versions per identity. The CBOM has one component per identity with each place as an evidence occurrence; the report, the executive summary and the metrics count distinct assets; a copy going away is not a deletion. Wrapping-key links are not covered: no collector reports them yet. See [IDENTITY.md](IDENTITY.md). |
+
+## Shipped in 0.17.0, versioned policy packs
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
@@ -99,7 +105,6 @@ Built on the 0.12.0 lifecycle, so an outage can never close a ticket or drop a f
 
 | Item | Stage | Acceptance criterion |
 |---|---|---|
-| Asset identity and relationships | planned | The same certificate seen in a file, a Kubernetes secret and on a TLS endpoint is one asset with three observations; key versions, certificate-to-key and wrapping-key links. |
 | Observed usage | planned | Optional CloudTrail, Vault audit and cloud audit-log imports, reported apart from "allowed to use" and "declared dependency", with the observation window. |
 | Risk-based PQC migration plan | planned | Per application: data sensitivity, how long it must stay confidential, exposure, owner, replacement support and effort, and why it ranks where it does. Absorbs the earlier "migration plan per quantum-vulnerable key" item. |
 | Deeper code analysis | planned | Language-aware analysis of variables and wrappers, a confidence per result, SARIF output, and accuracy measured on a labelled sample corpus. |

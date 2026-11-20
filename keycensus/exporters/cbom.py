@@ -43,7 +43,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from .. import __version__, registry
+from .. import __version__, identity, registry
 from ..analysis import strength
 from ..analysis.controls import describe
 from ..model import (
@@ -346,7 +346,21 @@ def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
     v17 = version == "1.7"
     components: dict[str, dict] = {}
     levels = _certification_levels(inv, v17)
+    # One component per identity: the same certificate or key pair seen in several places is one component,
+    # with a CycloneDX evidence occurrence for each place (keycensus.identity). A single record keeps its asset
+    # id as bom-ref, so CBOMs of estates without duplicates are unchanged.
+    idents = identity.group(inv.assets)
+    ref_of: dict[str, str] = {}
+    ident_ref: dict[str, str] = {}
+    for ident in idents:
+        merged = len(ident.asset_ids) > 1 and ident.basis != identity.BASIS_SINGLE
+        ident_ref[ident.id] = ident.id if merged else ident.asset_ids[0]
+        for aid in ident.asset_ids:
+            ref_of[aid] = ident_ref[ident.id]
+    sources_of = {ident.id: sorted({o["source"] for o in ident.observations}) for ident in idents}
+    ident_of = identity.index(idents)
     for a in inv.assets:
+        cref = ref_of.get(a.id, a.id)
         if a.kind in (KIND_KEY, KIND_CERTIFICATE):
             ref = _alg_ref(a, v17)
             if ref not in components:
@@ -370,6 +384,21 @@ def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
             # a key named "Ed25519" and the shared Ed25519 algorithm component are merged into one, and so are
             # two keys with the same name in different sources.
             components[a.id]["group"] = a.source
+        if cref != a.id and a.id in components:
+            comp = components.pop(a.id)
+            occ = _occurrences(comp, a)
+            if cref in components:  # another record of this identity was emitted first: add this place to it
+                have = components[cref].setdefault("evidence", {}).setdefault("occurrences", [])
+                have += [o for o in occ if o not in have]
+                continue
+            comp["bom-ref"] = cref
+            comp["group"] = ",".join(sources_of[ident_of[a.id]])
+            comp["evidence"] = {**(comp.get("evidence") or {}), "occurrences": occ}
+            components[cref] = comp
+    for ident in idents:
+        comp = components.get(ident.id)
+        if comp is not None:
+            comp.setdefault("properties", []).append({"name": "keycensus:places", "value": str(ident.places)})
 
     for app in inv.applications:
         components[app.ref] = _application_component(app)
@@ -392,7 +421,7 @@ def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
                 "ratings": [{"severity": SEVERITY_TO_CDX[f.severity], "method": "other"}],
                 "properties": [{"name": "control", "value": c} for c in f.controls]
                 + [{"name": "controlTitle", "value": f"{c}: {describe(c)['title']}"} for c in f.controls],
-                "affects": [{"ref": f.asset_id}],
+                "affects": [{"ref": ref_of.get(f.asset_id, f.asset_id)}],
             }
         )
 
@@ -421,12 +450,37 @@ def build(inv: Inventory, version: str = DEFAULT_VERSION) -> dict:
             ],
         },
         "components": comp_list,
-        "dependencies": [
-            {"ref": a.id, "dependsOn": [_alg_ref(a, v17)]} for a in inv.assets if a.kind in (KIND_KEY, KIND_CERTIFICATE)
-        ]
-        + [{"ref": app.ref, "dependsOn": list(app.asset_ids)} for app in inv.applications],
+        "dependencies": _dependencies(inv, v17, ref_of, ident_ref),
         "vulnerabilities": vulns,
     }
+
+
+def _occurrences(comp: dict, a) -> list[dict]:
+    """Where this record was seen: the collector's own occurrences (file and line for code), else its location."""
+    own = (comp.get("evidence") or {}).get("occurrences")
+    return list(own) if own else [{"location": f"{a.source}: {a.location or a.native_id}"}]
+
+
+def _dependencies(inv: Inventory, v17: bool, ref_of: dict[str, str], ident_ref: dict[str, str]) -> list[dict]:
+    """Each key or certificate depends on its algorithm; a certificate also depends on the key it certifies, the
+    CA certificate that issued it and the Key Vault key behind it; an application depends on its assets."""
+    deps: dict[str, list[str]] = {}
+
+    def add(ref: str, target: str) -> None:
+        lst = deps.setdefault(ref, [])
+        if target != ref and target not in lst:
+            lst.append(target)
+
+    for a in inv.assets:
+        if a.kind in (KIND_KEY, KIND_CERTIFICATE):
+            add(ref_of.get(a.id, a.id), _alg_ref(a, v17))
+    for rel in identity.relationships(inv.assets, identity.group(inv.assets)):
+        add(ident_ref[rel["from"]], ident_ref[rel["to"]])
+    for app in inv.applications:
+        deps.setdefault(app.ref, [])
+        for aid in app.asset_ids:
+            add(app.ref, ref_of.get(aid, aid))
+    return [{"ref": r, "dependsOn": d} for r, d in deps.items()]
 
 
 def render(inv: Inventory, version: str = DEFAULT_VERSION) -> str:

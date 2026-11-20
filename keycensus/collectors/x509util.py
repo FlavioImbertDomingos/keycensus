@@ -10,7 +10,7 @@ from typing import Any
 
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa, x448, x25519
-from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from ..model import (
     ALG_DSA,
@@ -61,6 +61,31 @@ def signature_hash_name(cert: x509.Certificate) -> str | None:
     except Exception:  # noqa: BLE001 - e.g. Ed25519 has no separate hash
         return None
     return h.name.upper() if h else None
+
+
+def spki_sha256(key: Any) -> str | None:
+    """SHA-256 of a key's DER SubjectPublicKeyInfo (pass a public or a private key), or None."""
+    try:
+        pub = key.public_key() if hasattr(key, "public_key") else key
+        return hashlib.sha256(pub.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _key_ids(cert: x509.Certificate) -> dict[str, str]:
+    """Subject and authority key identifiers (hex), which tie a certificate to the CA certificate that issued it."""
+    out: dict[str, str] = {}
+    try:
+        out["ski"] = cert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value.digest.hex()
+    except (x509.ExtensionNotFound, ValueError):
+        pass
+    try:
+        aki = cert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier).value.key_identifier
+        if aki:
+            out["aki"] = aki.hex()
+    except (x509.ExtensionNotFound, ValueError):
+        pass
+    return out
 
 
 def certificate_fields(cert: x509.Certificate) -> dict[str, Any]:
@@ -116,7 +141,8 @@ def certificate_fields(cert: x509.Certificate) -> dict[str, Any]:
         "signature_hash": signature_hash_name(cert),
         "self_signed": subject == issuer,
         "fingerprint_sha256": hashlib.sha256(cert.public_bytes(Encoding.DER)).hexdigest(),
-        "extra": {"serial": format(cert.serial_number, "x"), "sans": sans, "is_ca": is_ca},
+        "public_key_sha256": spki_sha256(cert.public_key()),
+        "extra": {"serial": format(cert.serial_number, "x"), "sans": sans, "is_ca": is_ca, **_key_ids(cert)},
     }
 
 

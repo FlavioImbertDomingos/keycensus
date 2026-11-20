@@ -18,12 +18,16 @@ Uses plain HTTP so there is no extra dependency.
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from datetime import UTC, datetime
+from typing import Any
 
 import requests
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from ..model import (
     ALG_AES,
@@ -39,7 +43,7 @@ from ..model import (
     CryptoAsset,
 )
 from .base import Collector, gap_kind
-from .x509util import certificate_fields
+from .x509util import certificate_fields, spki_sha256
 
 log = logging.getLogger(__name__)
 
@@ -162,7 +166,7 @@ class VaultCollector(Collector):
                 out[n] = str(data["policy"])
         return out
 
-    def _transit_asset(self, mount: str, name: str, d: dict) -> CryptoAsset:
+    def _transit_asset(self, mount: str, name: str, d: dict) -> CryptoAsset:  # noqa: C901
         ktype = str(d.get("type", ""))
         alg, size, curve = TRANSIT_TYPES.get(ktype, (ALG_UNKNOWN, None, None))
         if ktype == "hmac" and d.get("key_size"):
@@ -203,6 +207,7 @@ class VaultCollector(Collector):
             rotation_enabled=rotation,
             exportable=bool(d.get("exportable")),
             hardware_backed=bool(self.hardware),
+            public_key_sha256=_transit_public_key_sha256(versions, d.get("latest_version")),
             location=f"{self.url} {mount}/keys/{name}",
             extra={
                 "vault_type": ktype,
@@ -260,4 +265,19 @@ def _parse_ts(value) -> datetime | None:
     try:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
     except ValueError:
+        return None
+
+
+def _transit_public_key_sha256(versions: dict, latest: Any) -> str | None:
+    """Fingerprint of the latest version's public key, for asymmetric Transit keys (rsa-*, ecdsa-*, ed25519).
+    Vault returns a PEM for RSA and ECDSA, and the raw key in base64 for Ed25519."""
+    v = versions.get(str(latest)) if isinstance(versions, dict) else None
+    pub = (v or {}).get("public_key") if isinstance(v, dict) else None
+    if not pub:
+        return None
+    try:
+        if "BEGIN" in pub:
+            return spki_sha256(serialization.load_pem_public_key(pub.encode()))
+        return spki_sha256(ed25519.Ed25519PublicKey.from_public_bytes(base64.b64decode(pub)))
+    except (ValueError, TypeError):
         return None
